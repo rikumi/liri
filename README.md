@@ -5,7 +5,7 @@
 - 无需 Root，在通知中心实时显示网易云音乐当前歌词的小插件；
 - 通过 DIY，可配合其它通知读取应用，如 **Kustom Widget**、**Automate**，实现将歌词显示到桌面微件、将当前歌词状态发送到第三方服务如 IFTTT 等。
 
-## 截图（本应用不含小部件）
+## 截图（不含微件）
 <img width="300" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/60326626-97ba9680-99bc-11e9-879d-a9f042e87c2c.png">
 
 ## 使用
