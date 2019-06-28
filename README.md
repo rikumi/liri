@@ -6,10 +6,11 @@
 - 通过 DIY，可配合其它通知读取应用，如 **Kustom Widget**、**Automate**，实现将歌词显示到桌面微件、将当前歌词状态发送到第三方服务如 IFTTT 等。
 
 ## 截图（本应用不含小部件）
-![screenshot](https://user-images.githubusercontent.com/5051300/60326626-97ba9680-99bc-11e9-879d-a9f042e87c2c.png)
+<img width="200" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/60326626-97ba9680-99bc-11e9-879d-a9f042e87c2c.png">
 
 ## 使用
 - 在网易云音乐中设置通知栏样式为系统通知栏；
+- [下载 Release](https://github.com/rikumi/lrc-helper-android/releases/latest)；
 - 安装后将会跳转通知读取权限，开启权限后可使用，同时隐藏启动器图标；
 - 记得关闭电池优化；如果不慎杀掉了进程，重启手机可以自动启动；
 - 开启通知折叠：在 **应用管理 - 歌词助手 - 通知 - 歌词通知 - 行为** 中设置 **无声显示并将重要性级别最小化**，再次打开通知中心即可折叠通知，折叠后只显示一行，展开显示两行。
