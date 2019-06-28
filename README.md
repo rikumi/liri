@@ -6,7 +6,7 @@
 - 通过 DIY，可配合其它通知读取应用，如 **Kustom Widget**、**Automate**，实现将歌词显示到桌面微件、将当前歌词状态发送到第三方服务如 IFTTT 等。
 
 ## 截图（本应用不含小部件）
-<img width="200" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/60326626-97ba9680-99bc-11e9-879d-a9f042e87c2c.png">
+<img width="300" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/60326626-97ba9680-99bc-11e9-879d-a9f042e87c2c.png">
 
 ## 使用
 - 在网易云音乐中设置通知栏样式为系统通知栏；
