@@ -1,14 +1,14 @@
-# <img width="24" src="https://user-images.githubusercontent.com/5051300/130321895-7df9402b-1bd6-42b8-a60d-2ae9c5ead58b.png"> lrc-helper-android
-歌词助手 for Android 9+
+# <img width="24" src="https://user-images.githubusercontent.com/5051300/130321895-7df9402b-1bd6-42b8-a60d-2ae9c5ead58b.png"> Liri
+通知栏歌词助手 for Android 9+
 
 ## 简介
 - 无需 Root，在通知中心实时显示当前播放歌词的小插件，支持任何有系统通知样式的播放器；
 - 通过 DIY，可配合其它通知读取应用，如 **Kustom Widget**、**Automate**，实现将歌词显示到桌面微件、将当前歌词状态发送到第三方服务如 IFTTT 等。
 
-## 截图（不含微件）
+## 效果展示
 <p>
-<img width="400" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/130321381-83a8aac2-fe0d-454c-ae7e-ddc9c3bd1175.png">
-<img width="400" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/130321628-0980329a-6e83-4b21-9972-5152ae8066a1.png">
+<img width="400" src="https://user-images.githubusercontent.com/5051300/130322287-39e56293-9c3a-434b-bace-019cb552a455.png">
+<img width="400" src="https://user-images.githubusercontent.com/5051300/130322286-fc10578c-dc46-437c-abfb-d366ccbfeacf.png">
 </p>
 
 ## 使用
