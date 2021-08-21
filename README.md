@@ -7,8 +7,8 @@
 
 ## 效果展示
 <p>
-<img width="400" src="https://user-images.githubusercontent.com/5051300/130322287-39e56293-9c3a-434b-bace-019cb552a455.png">
-<img width="400" src="https://user-images.githubusercontent.com/5051300/130322286-fc10578c-dc46-437c-abfb-d366ccbfeacf.png">
+<img width="400" src="https://user-images.githubusercontent.com/5051300/130322634-eec48c14-bc87-4df0-b56e-42cbe98a6fea.png">
+<img width="400" src="https://user-images.githubusercontent.com/5051300/130322639-900a1f2e-70ef-4ec7-8247-0192bd09c3b6.png">
 </p>
 
 ## 使用
