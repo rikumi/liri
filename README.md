@@ -6,8 +6,13 @@
 - 通过 DIY，可配合其它通知读取应用，如 **Kustom Widget**、**Automate**，实现将歌词显示到桌面微件、将当前歌词状态发送到第三方服务如 IFTTT 等。
 
 ## 截图（不含微件）
-<img width="300" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/60326626-97ba9680-99bc-11e9-879d-a9f042e87c2c.png">
 
+<p align="center">⬅ 2019 ｜ 2021 ➡</p>
+<p align="center">
+  <img height="1000" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/60326626-97ba9680-99bc-11e9-879d-a9f042e87c2c.png">
+  <img height="1000" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/130321381-83a8aac2-fe0d-454c-ae7e-ddc9c3bd1175.png">
+</p>
+  
 ## 使用
 - 对于国产音乐 App，需要设置通知栏样式为系统通知栏；
 - [下载 Release](https://github.com/rikumi/lrc-helper-android/releases/latest)；
