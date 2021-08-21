@@ -73,8 +73,8 @@ class MainService : NotificationListenerService() {
     private fun parseNotification(sbn: StatusBarNotification) {
         val map = sbn.notification.extras
         val mst = map.get("android.mediaSession") as MediaSession.Token?
-        val title = map.getString("android.title")
-        val artistAndAlbum = map.getString("android.text")?.split(" - ")
+        val title = map.get("android.title")?.toString()
+        val artistAndAlbum = map.get("android.text")?.toString()?.split(" - ")
         if (mst != null && title != null && artistAndAlbum != null) {
             val controller = MediaController(this, mst)
             val state = controller.playbackState
@@ -180,7 +180,7 @@ class MainService : NotificationListenerService() {
             val content = line.groupValues[2]
             Regex("\\[[\\d.:]+]").findAll(line.value).forEach { tag ->
                 val numbers = Regex("\\d+").findAll(tag.value).toList()
-                var time = 0
+                var time = -250
                 if (numbers.size > 0) {
                     time += numbers[0].value.toInt() * 60000
                 }
