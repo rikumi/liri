@@ -1,4 +1,4 @@
-# lrc-helper-android
+# <img width="24" src="https://user-images.githubusercontent.com/5051300/130321895-7df9402b-1bd6-42b8-a60d-2ae9c5ead58b.png"> lrc-helper-android
 歌词助手 for Android 9+
 
 ## 简介
