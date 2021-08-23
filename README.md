@@ -1,21 +1,21 @@
-# <img width="24" src="https://user-images.githubusercontent.com/5051300/130321895-7df9402b-1bd6-42b8-a60d-2ae9c5ead58b.png"> lrc-helper-android
-歌词助手 for Android 9+
+# <img width="24" src="https://user-images.githubusercontent.com/5051300/130321895-7df9402b-1bd6-42b8-a60d-2ae9c5ead58b.png"> Liri
+通知栏歌词助手 for Android 9+
 
 ## 简介
 - 无需 Root，在通知中心实时显示当前播放歌词的小插件，支持任何有系统通知样式的播放器；
 - 通过 DIY，可配合其它通知读取应用，如 **Kustom Widget**、**Automate**，实现将歌词显示到桌面微件、将当前歌词状态发送到第三方服务如 IFTTT 等。
 
-## 截图（不含微件）
+## 效果展示
 <p>
-<img width="400" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/130321381-83a8aac2-fe0d-454c-ae7e-ddc9c3bd1175.png">
-<img width="400" alt="screenshot" src="https://user-images.githubusercontent.com/5051300/130321628-0980329a-6e83-4b21-9972-5152ae8066a1.png">
+<img width="400" src="https://user-images.githubusercontent.com/5051300/130322634-eec48c14-bc87-4df0-b56e-42cbe98a6fea.png">
+<img width="400" src="https://user-images.githubusercontent.com/5051300/130322639-900a1f2e-70ef-4ec7-8247-0192bd09c3b6.png">
 </p>
 
 ## 使用
 - 对于国产音乐 App，需要设置通知栏样式为系统通知栏；
 - [下载 Release](https://github.com/rikumi/lrc-helper-android/releases/latest)；
 - 安装后将会跳转通知读取权限，开启权限后可使用，建议手动隐藏启动器图标并关闭电池优化；
-- 开启通知折叠：在 **应用管理 - 歌词助手 - 通知 - 歌词通知 - 行为** 中设置 **无声显示并将重要性级别最小化**，再次打开通知中心即可折叠通知，折叠后只显示一行，展开显示两行。
+- 开启通知折叠：在 **应用程序和通知 - Liri - 通知 - 歌词通知 - 行为** 中设置 **无声显示并将重要性级别最小化**，再次打开通知中心即可折叠通知，折叠后只显示一行，展开显示两行。
 
 ## 已知问题
 - 由于网易云 API 限制，频繁搜索歌词会触发 IP 反爬机制，约 1 小时之内恢复，但按顺序聆听音乐过程中一般不会受此影响；
