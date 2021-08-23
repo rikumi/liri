@@ -164,12 +164,12 @@ class MainService : NotificationListenerService() {
 
             currentMusicLyrics.forEach { key, value ->
                 if (key <= position) {
-                    currentLine = value.trim()
+                    currentLine = value
                 } else if (currentLine != null && nextLine == null) {
-                    nextLine = value.trim()
+                    nextLine = value
                 }
             }
-            updateLyric(currentLine ?: "", nextLine ?: "")
+            updateLyric(currentLine ?: "", nextLine ?: currentMusicLyrics.valueAt(0) ?: "")
         }
     }
 
@@ -190,7 +190,7 @@ class MainService : NotificationListenerService() {
                 if (numbers.size > 2) {
                     time += (("0." + numbers[2].value).toFloat() * 1000).toInt()
                 }
-                currentMusicLyrics.append(time, content)
+                currentMusicLyrics.append(time, content.trim())
             }
         }
     }
