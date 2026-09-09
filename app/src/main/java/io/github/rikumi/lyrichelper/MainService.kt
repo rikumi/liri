@@ -599,9 +599,17 @@ class MainService : NotificationListenerService() {
                 SystemClock.elapsedRealtime() - (position - lineStart),
                 lineStart,
             )
-            if (isPlaying && currentIndex >= 0 && currentIndex + 1 < currentMusicLyrics.size()) {
-                val nextTime = currentMusicLyrics.keyAt(currentIndex + 1)
-                if (nextTime != Int.MAX_VALUE) scheduleLyricBoundary(title, artist, album, nextTime, position)
+            if (isPlaying) {
+                val nextTime = when {
+                    currentIndex >= 0 && currentIndex + 1 < currentMusicLyrics.size() ->
+                        currentMusicLyrics.keyAt(currentIndex + 1)
+                    currentIndex < 0 && currentMusicLyrics.size() > 0 ->
+                        currentMusicLyrics.keyAt(0)
+                    else -> Int.MAX_VALUE
+                }
+                if (nextTime != Int.MAX_VALUE && nextTime > position) {
+                    scheduleLyricBoundary(title, artist, album, nextTime, position)
+                }
             }
         }
     }
