@@ -272,12 +272,15 @@ class MainService : NotificationListenerService() {
         val prioritizedNotifications = filtered.sortedByDescending { notification ->
             notificationPlaybackState(notification) == STATE_PLAYING
         }
-        val musicFound = prioritizedNotifications.any { parseNotification(it) } || runCatching {
+        // 同一播放器自然切歌时，媒体通知可能暂时仍带着上一首的标题；
+        // 活跃媒体会话的 metadata 更新更及时，应优先用它刷新歌曲和歌词。
+        val activeSessionMusicFound = runCatching {
             val manager = getSystemService(MediaSessionManager::class.java)
             manager.getActiveSessions(ComponentName(this, MainService::class.java))
                 .sortedByDescending { it.playbackState?.state == STATE_PLAYING }
                 .any { parseActiveSession(it) }
         }.getOrDefault(false)
+        val musicFound = activeSessionMusicFound || prioritizedNotifications.any { parseNotification(it) }
         if (!musicFound) {
             lyricWindow?.hideLyric()
             clearPlayerState()
