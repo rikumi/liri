@@ -460,6 +460,7 @@ class MainService : NotificationListenerService() {
     private fun refreshLyrics(title: String, artist: String, album: String, position: Long) {
         val nameIdentifier = "$title - $artist"
         val forceSearch = settingsPrefs().getBoolean("lyric_force_search", false)
+        val trackChanged = currentMusic != nameIdentifier
 
         if (currentMusic != nameIdentifier || forceSearch) {
             lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
@@ -473,6 +474,8 @@ class MainService : NotificationListenerService() {
                     .putString("now_lyric_current", "")
                     .putString("now_lyric_next", "")
                     .putFloat("now_lyric_progress", 0f)
+                    .putLong("now_lyric_start_elapsed", 0L)
+                    .putLong("now_lyric_duration_ms", 0L)
                     .apply()
             }
             activeResultId = -1
@@ -502,7 +505,8 @@ class MainService : NotificationListenerService() {
                     .apply()
                 parseLyrics(local)
                 settingsPrefs().edit().putBoolean("lyric_searching", false).apply()
-                refreshLyrics(title, artist, album, position)
+                // 新歌曲首次收到的媒体位置可能仍是上一首的缓存值，歌词从 0 开始计算。
+                refreshLyrics(title, artist, album, if (trackChanged) 0L else position)
                 return
             }
 
