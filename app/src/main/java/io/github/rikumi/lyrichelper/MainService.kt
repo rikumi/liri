@@ -431,13 +431,18 @@ class MainService : NotificationListenerService() {
         lyricWindow?.hideLyric()
     }
 
-    private fun cloudMusicRequest(route: String, callback: (JSONObject) -> Unit) {
+    private fun cloudMusicRequest(
+        route: String,
+        musicKey: String? = null,
+        callback: (JSONObject) -> Unit,
+    ) {
         val request = JsonObjectRequest(
             Request.Method.GET,
             "https://music.163.com$route",
             null,
             Response.Listener<JSONObject> { callback(it) },
             Response.ErrorListener { e ->
+                if (musicKey != null && musicKey != currentMusic) return@ErrorListener
                 currentMusic = ""
                 settingsPrefs().edit().putBoolean("lyric_searching", false).apply()
                 showMessage("歌词获取失败，正在重试…")
@@ -505,7 +510,7 @@ class MainService : NotificationListenerService() {
             val musicBeforeRequest = currentMusic
             val preserveLocalLyric = File("/sdcard/Music/Liri", lrcName(title, artist)).isFile
             val searchQuery = settingsPrefs().getString("lyric_search_query", "")?.trim().takeUnless { it.isNullOrBlank() } ?: "$title $artist"
-            cloudMusicRequest("/api/search/get?type=1&s=${URLEncoder.encode(searchQuery, "UTF-8")}") { res ->
+            cloudMusicRequest("/api/search/get?type=1&s=${URLEncoder.encode(searchQuery, "UTF-8")}", musicBeforeRequest) { res ->
                 if (musicBeforeRequest != currentMusic) return@cloudMusicRequest
                 runCatching {
                     val songs = res.optJSONObject("result")?.optJSONArray("songs")
@@ -622,7 +627,7 @@ class MainService : NotificationListenerService() {
             }
             return
         }
-        cloudMusicRequest("/api/song/media?id=$id") { res ->
+        cloudMusicRequest("/api/song/media?id=$id", musicBeforeRequest) { res ->
             if (musicBeforeRequest != currentMusic) return@cloudMusicRequest
             if (res.has("lyric")) {
                 val lyric = res.getString("lyric")
