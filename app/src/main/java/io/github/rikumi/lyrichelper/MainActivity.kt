@@ -51,7 +51,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -192,7 +191,7 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onReplace
 }
 
 private data class SearchResult(val id: Long, val title: String, val artist: String, val album: String)
-private data class PlayerSnapshot(val title: String, val artist: String, val cover: String?, val coverVersion: Long, val currentLyric: String, val nextLyric: String, val lyricProgress: Float, val lyricStartElapsed: Long, val lyricDurationMs: Long, val playbackPositionMs: Long, val playbackUpdatedElapsed: Long, val playbackIsPlaying: Boolean, val results: List<SearchResult>, val selectedId: Long, val autoSave: Boolean, val songOffsetMs: Int, val serviceStarted: Boolean, val localLrcExists: Boolean, val manualSearch: Boolean, val searchingLyrics: Boolean)
+private data class PlayerSnapshot(val title: String, val artist: String, val cover: String?, val coverVersion: Long, val currentLyric: String, val nextLyric: String, val lyricProgress: Float, val lyricStartElapsed: Long, val lyricDurationMs: Long, val results: List<SearchResult>, val selectedId: Long, val autoSave: Boolean, val songOffsetMs: Int, val serviceStarted: Boolean, val localLrcExists: Boolean, val manualSearch: Boolean, val searchingLyrics: Boolean)
 
 private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
     val prefs = context.settingsPrefs()
@@ -213,9 +212,6 @@ private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
         prefs.getFloat("now_lyric_progress", 0f).coerceIn(0f, 1f),
         prefs.getLong("now_lyric_start_elapsed", 0L),
         prefs.getLong("now_lyric_duration_ms", 0L),
-        prefs.getLong("playback_position_ms", 0L),
-        prefs.getLong("playback_updated_elapsed", 0L),
-        prefs.getBoolean("playback_is_playing", false),
         results,
         prefs.getLong("selected_lyric_id", -1L),
         prefs.getBoolean("save_lyrics_automatically", true),
@@ -299,18 +295,6 @@ private fun NowPlayingCard(player: PlayerSnapshot) {
 private fun SongOffsetControl(player: PlayerSnapshot) {
     val context = LocalContext.current
     var offsetMs by remember(player.title, player.artist, player.songOffsetMs) { mutableIntStateOf(player.songOffsetMs.coerceIn(-30000, 30000)) }
-    var playbackPositionMs by remember(player.title, player.playbackPositionMs, player.playbackUpdatedElapsed) {
-        mutableLongStateOf(player.playbackPositionMs.coerceAtLeast(0L))
-    }
-    LaunchedEffect(player.title, player.playbackPositionMs, player.playbackUpdatedElapsed, player.playbackIsPlaying) {
-        while (true) {
-            playbackPositionMs = (player.playbackPositionMs +
-                if (player.playbackIsPlaying && player.playbackUpdatedElapsed > 0L) {
-                    SystemClock.elapsedRealtime() - player.playbackUpdatedElapsed
-                } else 0L).coerceAtLeast(0L)
-            delay(100L)
-        }
-    }
     Row(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -325,16 +309,10 @@ private fun SongOffsetControl(player: PlayerSnapshot) {
             }.padding(vertical = 10.dp),
         )
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
             BasicText(
-                text = formatPlaybackTime(playbackPositionMs),
-                style = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurfaceVariantSummary),
-            )
-            BasicText(
-                text = " %+.1fs".format(offsetMs / 1000f),
+                text = "%+.1fs".format(offsetMs / 1000f),
                 style = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurface),
             )
-            }
         }
         BasicText(
             text = "+ 延后",
@@ -346,11 +324,6 @@ private fun SongOffsetControl(player: PlayerSnapshot) {
             }.padding(vertical = 10.dp),
         )
     }
-}
-
-private fun formatPlaybackTime(positionMs: Long): String {
-    val totalSeconds = (positionMs / 1000L).coerceAtLeast(0L)
-    return "%02d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
 }
 
 @Composable
