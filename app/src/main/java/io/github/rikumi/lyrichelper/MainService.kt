@@ -263,6 +263,11 @@ class MainService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         handler.post { update() }
+        // 服务刚连接时，系统可能还未完成媒体会话和通知列表的恢复；
+        // 已在播放的歌曲未必会再次发送状态变化，因此只在启动阶段补几次短重试。
+        listOf(300L, 1000L, 2000L).forEach { delayMs ->
+            handler.postDelayed({ update() }, delayMs)
+        }
     }
 
     private fun update() {
