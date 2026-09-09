@@ -140,6 +140,10 @@ class MainService : NotificationListenerService() {
             if (title.isBlank()) return
             handler.post {
                 isPlaying = state?.state == STATE_PLAYING
+                if (!isPlaying) {
+                    lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
+                    lyricBoundaryRunnable = null
+                }
                 scheduleEditorPause()
                 refreshLyrics(title, observedArtist, observedAlbum, state?.position ?: 0L)
             }
@@ -595,7 +599,7 @@ class MainService : NotificationListenerService() {
                 SystemClock.elapsedRealtime() - (position - lineStart),
                 lineStart,
             )
-            if (currentIndex >= 0 && currentIndex + 1 < currentMusicLyrics.size()) {
+            if (isPlaying && currentIndex >= 0 && currentIndex + 1 < currentMusicLyrics.size()) {
                 val nextTime = currentMusicLyrics.keyAt(currentIndex + 1)
                 if (nextTime != Int.MAX_VALUE) scheduleLyricBoundary(title, artist, album, nextTime, position)
             }
@@ -603,6 +607,7 @@ class MainService : NotificationListenerService() {
     }
 
     private fun scheduleLyricBoundary(title: String, artist: String, album: String, nextTime: Int, position: Long) {
+        if (!isPlaying) return
         lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
         val delay = (nextTime.toLong() - position).coerceAtLeast(1L)
         val musicAtSchedule = currentMusic
