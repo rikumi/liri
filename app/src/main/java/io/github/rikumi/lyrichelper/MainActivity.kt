@@ -619,16 +619,12 @@ private fun StyleScreen(onBack: () -> Unit) {
                 StyleSlider("Y 坐标（上边距）", "%", topValue, 0, 100, topDefault, valueText = { "%.1f%%".format(Locale.ROOT, it / 10f) }) { setInt(context, KEY_TOP, it) }
                 CouixItemDivider()
                 StyleSlider("宽度", "dp", prefs.getInt(KEY_WIDTH, widthDefault), 100, widthMax, widthDefault) { setInt(context, KEY_WIDTH, it) }
-            }
-        }
-        item {
-            CouixSmallTitle("悬浮歌词样式")
-            CouixCard {
+                CouixItemDivider()
                 StyleSlider("字号", "sp", prefs.getInt(KEY_FONT, DEFAULT_FONT), 10, 18, DEFAULT_FONT) { setInt(context, KEY_FONT, it) }
             }
         }
         item {
-            CouixSmallTitle("其它通知")
+            CouixSmallTitle("避开通知图标")
             CouixGroup(
                 items = listOf(
                     SwitchItem(
@@ -660,17 +656,7 @@ private fun StyleScreen(onBack: () -> Unit) {
                 StyleSlider("切入角度", "°", prefs.getInt(KEY_ANGLE, DEFAULT_ANGLE), 0, 360, DEFAULT_ANGLE, step = 15) { setInt(context, KEY_ANGLE, it) }
                 CouixItemDivider()
                 StyleSlider("切入距离", "dp", prefs.getInt(KEY_DISTANCE, DEFAULT_DISTANCE), 8, 64, DEFAULT_DISTANCE) { setInt(context, KEY_DISTANCE, it) }
-            }
-        }
-        item {
-            CouixSmallTitle("歌词时间")
-            CouixCard {
-                StyleSlider("歌词偏移", "ms", prefs.getInt(KEY_OFFSET, DEFAULT_OFFSET), -2000, 1000, DEFAULT_OFFSET) { setInt(context, KEY_OFFSET, it) }
-            }
-        }
-        item {
-            CouixSmallTitle("动画时长")
-            CouixCard {
+                CouixItemDivider()
                 StyleSlider("切入切出持续时间", "ms", prefs.getInt(KEY_DURATION, DEFAULT_DURATION), 100, 600, DEFAULT_DURATION) { setInt(context, KEY_DURATION, it) }
             }
         }
@@ -718,14 +704,12 @@ private const val KEY_SHIFT_EACH_NOTIFICATION = "overlay_shift_each_notification
 private const val KEY_SHIFT_EACH_NOTIFICATION_DP = "overlay_shift_each_notification_dp"
 private const val KEY_ANGLE = "lyric_animation_angle"
 private const val KEY_DISTANCE = "lyric_animation_distance_dp"
-private const val KEY_OFFSET = "lyric_offset_ms"
 private const val KEY_DURATION = "lyric_animation_duration_ms"
 private const val DEFAULT_LEFT = 12
 private const val DEFAULT_WIDTH = 236
 private const val DEFAULT_FONT = 13
 private const val DEFAULT_ANGLE = 180
 private const val DEFAULT_DISTANCE = 32
-private const val DEFAULT_OFFSET = -500
 private const val DEFAULT_DURATION = 280
 
 private fun defaultTop(context: Context): Int {
