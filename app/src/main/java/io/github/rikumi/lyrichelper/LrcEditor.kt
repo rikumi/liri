@@ -221,7 +221,7 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
                     EditorAction("删除标签", { EditorDeleteIcon() }, imeVisible) { applyEdit(editorDelete(value)) }
                     EditorBatchAction(
                         showLabel = !imeVisible,
-                        onFormat = { applyEdit(TextFieldValue(editorFormat(value.text, prefs))) },
+                        onFormat = { applyEdit(TextFieldValue(editorFormat(value.text))) },
                         onClearAllTags = { applyEdit(editorClearAllTags(value)) },
                     )
                     EditorAction("保存", { top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Folder, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) {
@@ -384,7 +384,7 @@ private fun editorDelete(value: TextFieldValue): TextFieldValue {
 private fun editorClearAllTags(value: TextFieldValue): TextFieldValue =
     TextFieldValue(editorTimeTag.replace(value.text, ""), TextRange(value.selection.start.coerceAtMost(editorTimeTag.replace(value.text, "").length)))
 
-private fun editorFormat(text: String, prefs: android.content.SharedPreferences): String {
+private fun editorFormat(text: String): String {
     data class Timed(val time: Int, val lyric: String)
     val entries = mutableListOf<Timed>()
     var tagOffset = 0
@@ -398,7 +398,7 @@ private fun editorFormat(text: String, prefs: android.content.SharedPreferences)
             val minute = parts.firstOrNull()?.toIntOrNull() ?: return@forEach
             val second = seconds.firstOrNull()?.toIntOrNull() ?: return@forEach
             val fraction = seconds.getOrNull(1)?.padEnd(3, '0')?.take(3)?.toIntOrNull() ?: 0
-            entries += Timed((minute * 60_000 + second * 1_000 + fraction + tagOffset + prefs.getInt("lyric_offset_ms", -500)).coerceAtLeast(0), lyric)
+            entries += Timed((minute * 60_000 + second * 1_000 + fraction + tagOffset).coerceAtLeast(0), lyric)
         }
     }
     return entries.sortedBy { it.time }.joinToString("\n") { "[%02d:%02d.%02d]%s".format(Locale.ROOT, it.time / 60000, it.time / 1000 % 60, it.time % 1000 / 10, it.lyric) }
