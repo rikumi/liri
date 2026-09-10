@@ -92,7 +92,7 @@ class MainService : NotificationListenerService() {
     private val settingsChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         val overlaySettingChanged = key?.startsWith("overlay_") == true || key?.startsWith("lyric_animation_") == true
         val searchRequested = key == "lyric_search_requested" && settingsPrefs().getBoolean("lyric_search_requested", false)
-        if (searchRequested || overlaySettingChanged || key == "current_song_offset_ms" || key == "lyric_offset_ms" || key == "selected_lyric_id" || key == "lyric_selection_manual" || key == "lyric_text_replacements" || key?.startsWith("replace_") == true) {
+        if (searchRequested || overlaySettingChanged || key == "current_song_offset_ms" || key == "selected_lyric_id" || key == "lyric_selection_manual" || key == "lyric_text_replacements" || key?.startsWith("replace_") == true) {
             handler.post {
                 if (searchRequested) {
                     settingsPrefs().edit().putBoolean("lyric_search_requested", false).apply()
@@ -100,7 +100,6 @@ class MainService : NotificationListenerService() {
                 }
                 if (overlaySettingChanged) applyOverlaySettings()
                 if (key == "current_song_offset_ms") reloadLyricsAfterSongOffsetChange()
-                if (key == "lyric_offset_ms") reloadLyricsAfterGlobalOffsetChange()
                 if (key == "lyric_text_replacements" || key?.startsWith("replace_") == true) reloadLyricsAfterTextReplacementChange()
                 refreshCurrentLyricDisplay()
             }
@@ -475,6 +474,7 @@ class MainService : NotificationListenerService() {
     private fun refreshLyrics(title: String, artist: String, album: String, position: Long) {
         val nameIdentifier = "$title - $artist"
         val forceSearch = settingsPrefs().getBoolean("lyric_force_search", false)
+        val hadCurrentTrack = currentMusic.isNotBlank()
         val trackChanged = currentMusic != nameIdentifier
 
         if (currentMusic != nameIdentifier || forceSearch) {
@@ -520,8 +520,9 @@ class MainService : NotificationListenerService() {
                     .apply()
                 parseLyrics(local)
                 settingsPrefs().edit().putBoolean("lyric_searching", false).apply()
-                // 新歌曲首次收到的媒体位置可能仍是上一首的缓存值，歌词从 0 开始计算。
-                refreshLyrics(title, artist, album, if (trackChanged) 0L else position)
+                // 已有歌曲自然切换时，媒体会话可能暂时返回上一首的位置；服务首次启动时则必须使用当前真实位置。
+                val lyricPosition = if (trackChanged && hadCurrentTrack) 0L else position
+                refreshLyrics(title, artist, album, lyricPosition)
                 return
             }
 
@@ -733,8 +734,7 @@ class MainService : NotificationListenerService() {
         currentLineStartMs = Long.MIN_VALUE
         val taggedOffset = Regex("(?im)^\\[offset:([+-]?\\d+)\\]").find(lyrics)?.groupValues?.getOrNull(1)?.toIntOrNull()
         val songOffset = (taggedOffset ?: 0).coerceIn(-30000, 30000)
-        val globalOffset = settingsPrefs().getInt("lyric_offset_ms", -500).coerceIn(-2000, 1000)
-        val offset = songOffset + globalOffset
+        val offset = songOffset
         loadedSongOffsetMs = songOffset
         settingsPrefs().edit().putInt("current_song_offset_ms", songOffset).apply()
         val timeTagRegex = Regex("\\[(\\d+):(\\d{1,2})(?:[.:](\\d+))?\\]")
@@ -807,21 +807,6 @@ class MainService : NotificationListenerService() {
         val updated = withOffsetTag(source, requested)
         saveLrc(title, artist, updated)
         parseLyrics(updated)
-        currentLine = ""
-        nextLine = ""
-    }
-
-    private fun reloadLyricsAfterGlobalOffsetChange() {
-        if (currentMusic.isBlank()) return
-        val separator = currentMusic.lastIndexOf(" - ")
-        if (separator <= 0) return
-        val title = currentMusic.substring(0, separator)
-        val artist = currentMusic.substring(separator + 3)
-        val prefs = settingsPrefs()
-        val source = readLrc(title, artist) ?: prefs.getString("current_lyric_source", null)
-            ?.takeIf { prefs.getString("current_lyric_source_key", null) == currentMusic }
-            ?: return
-        parseLyrics(source)
         currentLine = ""
         nextLine = ""
     }
