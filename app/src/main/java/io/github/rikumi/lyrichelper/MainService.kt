@@ -1057,7 +1057,10 @@ class MainService : NotificationListenerService() {
                 startSinglePassScroll(outgoing, line)
                 return
             }
-            switchAnimator?.let { finishSwitch() }
+            switchAnimator?.let {
+                it.cancel()
+                finishSwitch()
+            }
             cancelScroll()
             val distance = dp(animationDistanceDp)
             val radians = Math.toRadians(animationAngle.toDouble())
@@ -1139,6 +1142,7 @@ class MainService : NotificationListenerService() {
             val oldOutgoing = outgoing
             outgoing = incoming
             incoming = oldOutgoing
+            resetTransform(outgoing)
             resetTransform(incoming)
             incoming.visibility = View.INVISIBLE
         }
