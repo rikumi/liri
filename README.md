@@ -1,8 +1,8 @@
+<img width="6242" height="3478" alt="liri-screenshots" src="https://github.com/user-attachments/assets/7d2a35b3-b4fa-4e18-8294-30dd952668aa" />
+
 # Liri
 
 更好的状态栏歌词
-
-![](https://github.com/user-attachments/assets/08661601-f9ee-4158-b9a9-c4a3bd04420b)
 
 Liri 通过系统通知读取权限和悬浮窗，在左上角显示当前音乐的歌词。应用界面和设置页使用基于 Miuix 的 Couix 的组件，支持浅色和深色主题，并采用青绿色作为主题色。
 
