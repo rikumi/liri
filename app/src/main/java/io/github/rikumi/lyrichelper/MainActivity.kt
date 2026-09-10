@@ -107,9 +107,9 @@ class MainActivity : ComponentActivity() {
                 controller = remember(darkTheme) {
                     ThemeController(
                         colorSchemeMode = if (darkTheme) ColorSchemeMode.Dark else ColorSchemeMode.Light,
-                        // 与应用图标背景一致的青绿色；深色模式提高明度以保持可读性。
-                        lightColors = lightColorScheme(primary = Color(0xFF008577)),
-                        darkColors = darkColorScheme(primary = Color(0xFF4DB6AC)),
+                        // 使用应用图标中的橘黄色；深色模式提高明度以保持可读性。
+                        lightColors = lightColorScheme(primary = Color(0xFFFF9F43)),
+                        darkColors = darkColorScheme(primary = Color(0xFFFFB86B)),
                     )
                 },
                 textStyles = couixTextStyles(),
