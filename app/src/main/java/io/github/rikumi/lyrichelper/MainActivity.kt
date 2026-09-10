@@ -153,7 +153,7 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onReplace
     }
     val listState = rememberLazyListState()
     val overscrollOffset = remember { mutableFloatStateOf(0f) }
-    Scaffold(containerColor = MiuixTheme.colorScheme.surface, contentWindowInsets = WindowInsets(0.dp), topBar = { CouixLargeTitle(title = "Liri", dividerProgress = couixTopBarDividerProgress(listState, overscrollOffset)) }) { padding ->
+    Scaffold(containerColor = MiuixTheme.colorScheme.surface, contentWindowInsets = WindowInsets(0.dp), topBar = { CouixLargeTitle(title = "Liri Lyrics", dividerProgress = couixTopBarDividerProgress(listState, overscrollOffset)) }) { padding ->
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding).couixOverscroll(listState, overscrollOffset).padding(top = 8.dp),

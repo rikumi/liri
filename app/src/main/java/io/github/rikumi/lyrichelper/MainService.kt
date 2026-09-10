@@ -1043,7 +1043,7 @@ class MainService : NotificationListenerService() {
         }
 
         fun setLyric(line: String, next: String, lineStartMs: Long = Long.MIN_VALUE) {
-            if (line.isBlank() || (line == current && lineStartMs == currentLineStartMs)) return
+            if (line == current && lineStartMs == currentLineStartMs) return
             current = line
             currentLineStartMs = lineStartMs
             if (visibility != View.VISIBLE) {
@@ -1161,7 +1161,6 @@ class MainService : NotificationListenerService() {
         }
 
         fun showLyric() {
-            if (current.isBlank()) return
             cancelAnimations()
             applyTextWidth(outgoing, current)
             outgoing.text = current
