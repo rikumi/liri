@@ -142,6 +142,9 @@ class MainService : NotificationListenerService() {
                 if (!isPlaying) {
                     lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
                     lyricBoundaryRunnable = null
+                    lyricWindow?.hideLyric(clearCurrent = false)
+                } else {
+                    lyricWindow?.showLyric()
                 }
                 scheduleEditorPause()
                 refreshLyrics(title, observedArtist, observedAlbum, state?.position ?: 0L)
@@ -376,6 +379,7 @@ class MainService : NotificationListenerService() {
                 handler.postDelayed({ refreshObservedCover(controller.sessionToken, title, artist, album) }, 1000)
 
                 refreshLyrics(title, artist, album, position)
+                if (isPlaying) lyricWindow?.showLyric() else lyricWindow?.hideLyric(clearCurrent = false)
                 return true
     }
 
@@ -853,7 +857,10 @@ class MainService : NotificationListenerService() {
             }
             edit.apply()
             Log.d("updateLyric", currentLine)
-            if (lineChanged) lyricWindow?.setLyric(line, next, lineStartMs)
+            if (lineChanged) {
+                if (isPlaying) lyricWindow?.setLyric(line, next, lineStartMs)
+                else lyricWindow?.hideLyric(clearCurrent = false)
+            }
         }
     }
 
@@ -1153,15 +1160,29 @@ class MainService : NotificationListenerService() {
             cancelScroll()
         }
 
-        fun hideLyric() {
+        fun showLyric() {
+            if (current.isBlank()) return
             cancelAnimations()
-            current = ""
-            visibility = View.GONE
-            outgoing.text = null
-            incoming.text = null
+            applyTextWidth(outgoing, current)
+            outgoing.text = current
             resetTransform(outgoing)
-            resetTransform(incoming)
+            outgoing.visibility = View.VISIBLE
             incoming.visibility = View.INVISIBLE
+            visibility = View.VISIBLE
+            startSinglePassScroll(outgoing, current)
+        }
+
+        fun hideLyric(clearCurrent: Boolean = true) {
+            cancelAnimations()
+            visibility = View.GONE
+            if (clearCurrent) {
+                current = ""
+                outgoing.text = null
+                incoming.text = null
+                resetTransform(outgoing)
+                resetTransform(incoming)
+                incoming.visibility = View.INVISIBLE
+            }
         }
     }
 
