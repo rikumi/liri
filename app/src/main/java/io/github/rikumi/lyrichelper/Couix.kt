@@ -115,6 +115,7 @@ import android.os.Vibrator
 import android.view.HapticFeedbackConstants
 import top.yukonga.miuix.kmp.theme.miuixShape
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -293,9 +294,20 @@ internal fun CouixPreferenceText(
         verticalArrangement = Arrangement.Bottom,
     ) {
         if (animateText) {
+            val lyricLineStyle = MiuixTheme.textStyles.body1.copy(
+                color = titleColor,
+                lineHeight = 26.sp,
+                platformStyle = PlatformTextStyle(includeFontPadding = true),
+                lineHeightStyle = LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.None,
+                ),
+                fontFeatureSettings = if (compressPunctuation) "kern" else null,
+            )
+            val lyricSubtitleStyle = lyricLineStyle.copy(color = subtitleColor)
             AnimatedContent(
                 targetState = title to subtitle,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp),
                 contentAlignment = Alignment.BottomCenter,
                 transitionSpec = {
                     (slideInVertically(tween(260)) { height -> height } + fadeIn(tween(260)))
@@ -303,11 +315,11 @@ internal fun CouixPreferenceText(
                 },
                 label = "couix_lyric_lines",
             ) { (current, next) ->
-                Column(modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalArrangement = Arrangement.Bottom) {
+                Column(modifier = Modifier.fillMaxWidth().height(52.dp), verticalArrangement = Arrangement.Bottom) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 26.dp)
+                            .height(26.dp)
                             .then(
                                 if (progress != null) {
                                     Modifier.drawBehind {
@@ -322,17 +334,17 @@ internal fun CouixPreferenceText(
                     ) {
                         BasicText(
                             text = current,
-                            style = MiuixTheme.textStyles.body1.copy(color = titleColor, fontFeatureSettings = if (compressPunctuation) "kern" else null),
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 26.dp).padding(horizontal = contentHorizontalPadding),
+                            style = lyricLineStyle,
+                            modifier = Modifier.fillMaxWidth().height(26.dp).padding(horizontal = contentHorizontalPadding),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Box(modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp)) {
+                    Box(modifier = Modifier.fillMaxWidth().height(26.dp)) {
                         BasicText(
                             text = next,
-                            style = MiuixTheme.textStyles.body1.copy(color = subtitleColor, fontFeatureSettings = if (compressPunctuation) "kern" else null),
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp).padding(horizontal = contentHorizontalPadding),
+                            style = lyricSubtitleStyle,
+                            modifier = Modifier.fillMaxWidth().height(26.dp).padding(horizontal = contentHorizontalPadding),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
