@@ -257,7 +257,13 @@ class MainService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
-        update()
+        handler.postDelayed({ update() }, 80L)
+    }
+
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        super.onNotificationRemoved(sbn)
+        // activeNotifications 在移除回调返回前可能仍包含旧列表，稍后再读取以得到最新数量。
+        handler.postDelayed({ update() }, 80L)
     }
 
     override fun onListenerConnected() {

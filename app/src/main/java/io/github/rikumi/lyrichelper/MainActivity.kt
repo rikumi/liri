@@ -55,6 +55,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -335,28 +336,34 @@ private fun LyricEditingCard(player: PlayerSnapshot, context: Context, onEditor:
             title = "自动保存歌词文件",
             subtitle = if (player.autoSave) "开启：自动保存下载的歌词到 Music/Liri 路径" else "关闭：仅保存手动选择歌词到 Music/Liri 路径",
         )
-        if (player.localLrcExists) {
-            CouixItemDivider()
-            Row(
-                modifier = Modifier.fillMaxWidth().clickable(onClick = onEditor).padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CouixPreferenceText(title = "编辑本地歌词", subtitle = "凭记忆还原我在十年前手写的歌词编辑器")
-            }
-            CouixItemDivider()
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth().clickable {
-                clearLocalLrc(player.title, player.artist).onSuccess {
-                    Toast.makeText(context, "歌词已清空", Toast.LENGTH_SHORT).show()
-                    context.startService(Intent(context, MainService::class.java).setAction(ACTION_RELOAD_LOCAL_LYRICS))
-                }.onFailure {
-                    Toast.makeText(context, "清空歌词失败：${it.message ?: "无权限"}", Toast.LENGTH_SHORT).show()
-                }
-            }.padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        CouixItemDivider()
+        var clearMenuVisible by remember { mutableStateOf(false) }
+        var actionRowHeightPx by remember { mutableIntStateOf(0) }
+        CouixActionPairRow(
+            leftTitle = "编辑本地歌词",
+            onLeftClick = onEditor,
+            rightTitle = "清空本地歌词",
+            onRightClick = { clearMenuVisible = true },
+            modifier = Modifier.onGloballyPositioned { actionRowHeightPx = it.size.height },
+        )
+        CouixDropdownPopup(
+            expanded = clearMenuVisible,
+            anchorHeightPx = actionRowHeightPx,
+            onDismissRequest = { clearMenuVisible = false },
         ) {
-            CouixPreferenceText(title = "清空本地歌词", subtitle = "生成空白歌词文件，之后不再对该歌曲搜词")
+            CouixDropdownItem(
+                text = "确认清空歌词",
+                selected = false,
+                onClick = {
+                    clearMenuVisible = false
+                    clearLocalLrc(player.title, player.artist).onSuccess {
+                        Toast.makeText(context, "歌词已清空", Toast.LENGTH_SHORT).show()
+                        context.startService(Intent(context, MainService::class.java).setAction(ACTION_RELOAD_LOCAL_LYRICS))
+                    }.onFailure {
+                        Toast.makeText(context, "清空歌词失败：${it.message ?: "无权限"}", Toast.LENGTH_SHORT).show()
+                    }
+                },
+            )
         }
     }
 }

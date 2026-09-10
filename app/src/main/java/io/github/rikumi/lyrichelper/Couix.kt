@@ -765,6 +765,8 @@ fun CouixTopAppBar(
             modifier = Modifier
                 .weight(1f)
                 .padding(start = COUIX_TOP_BAR_TITLE_GAP),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         actions()
     }

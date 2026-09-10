@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.Font
@@ -55,6 +56,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import top.yukonga.miuix.kmp.icon.extended.Redo
@@ -95,7 +97,11 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
     fun saveFile(): Boolean = runCatching {
         file.parentFile?.mkdirs()
         FileOutputStream(file, false).use { it.write(value.text.toByteArray(Charsets.UTF_8)) }
-    }.onSuccess { lastSavedText = value.text; Toast.makeText(context, "保存成功", Toast.LENGTH_SHORT).show() }
+    }.onSuccess {
+        lastSavedText = value.text
+        Toast.makeText(context, "保存成功", Toast.LENGTH_SHORT).show()
+        context.startService(Intent(context, MainService::class.java).setAction(ACTION_RELOAD_LOCAL_LYRICS))
+    }
         .onFailure { Toast.makeText(context, "保存失败：${it.message}", Toast.LENGTH_SHORT).show() }
         .isSuccess
     BackHandler { requestExit() }
@@ -103,6 +109,8 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
     val redoStack = remember(file.path) { mutableStateListOf<TextFieldValue>() }
     val editorScrollState = rememberScrollState()
     val density = LocalDensity.current
+    var editorTextLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
+    var editorTextTopPx by remember { mutableStateOf(0f) }
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
     fun applyEdit(next: TextFieldValue) {
         if (next.text != value.text || next.selection != value.selection) {
@@ -230,18 +238,34 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
         Box(modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding)) {
             Canvas(Modifier.fillMaxSize()) {
                 currentLineStart?.let { start ->
-                    val line = value.text.take(start).count { it == '\n' }
-                    val top = 16.dp.toPx() + line * with(density) { 20.dp.toPx() } - editorScrollState.value
-                    drawRect(accent.copy(alpha = 0.24f), topLeft = Offset(0f, top), size = androidx.compose.ui.geometry.Size(size.width, with(density) { 20.dp.toPx() }))
+                    editorTextLayout?.let { layout ->
+                        val lineEnd = value.text.indexOf('\n', start).let { if (it < 0) value.text.length else it }
+                        val firstLine = layout.getLineForOffset(start.coerceIn(0, value.text.length))
+                        val lastOffset = if (lineEnd > start) lineEnd - 1 else start
+                        val lastLine = layout.getLineForOffset(lastOffset.coerceIn(0, value.text.length))
+                        // editorTextTopPx 位于可滚动内容中，已经包含当前滚动偏移，不能再次扣除。
+                        val top = editorTextTopPx + layout.getLineTop(firstLine)
+                        val bottom = editorTextTopPx + layout.getLineBottom(lastLine)
+                        drawRect(
+                            accent.copy(alpha = 0.24f),
+                            topLeft = Offset(0f, top),
+                            size = androidx.compose.ui.geometry.Size(size.width, (bottom - top).coerceAtLeast(0f)),
+                        )
+                    }
                 }
             }
             BasicTextField(
                 value = value,
                 onValueChange = { applyEdit(it) },
-                modifier = Modifier.fillMaxSize().verticalScroll(editorScrollState).padding(16.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(editorScrollState)
+                    .padding(16.dp)
+                    .onGloballyPositioned { editorTextTopPx = it.positionInParent().y },
                 textStyle = MiuixTheme.textStyles.body2.copy(fontFamily = editorMonospace, fontFeatureSettings = "kern", letterSpacing = 0.sp, color = MiuixTheme.colorScheme.onSurface, lineHeight = 20.sp),
                 visualTransformation = remember(accent, currentLineStart) { EditorLrcVisualTransformation(accent, currentLineStart) },
                 cursorBrush = SolidColor(accent),
+                onTextLayout = { editorTextLayout = it },
             )
         }
     }
