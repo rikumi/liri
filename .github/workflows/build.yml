@@ -4,6 +4,16 @@ on:
   push:
     branches: [ master ]
   workflow_dispatch:
+    inputs:
+      bump_type:
+        description: 'Version increment type for the next release'
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
 
 permissions:
   contents: write
@@ -32,17 +42,29 @@ jobs:
         id: version
         run: |
           LATEST=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
-          if [ -z "$LATEST" ]; then
-            VERSION="1.0.0"
+          CURRENT=$(sed -n "s/.*versionName '\([0-9][0-9.]*\)'.*/\1/p" app/build.gradle | head -n 1)
+          LATEST_VERSION="${LATEST#v}"
+          if [ -n "$CURRENT" ] && [ "$CURRENT" != "$LATEST_VERSION" ]; then
+            VERSION="$CURRENT"
+            BUMP_SOURCE="app/build.gradle"
           else
-            IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST#v}"
-            PATCH=${PATCH:-0}
-            PATCH=$((PATCH + 1))
+            BUMP_TYPE="patch"
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+              BUMP_TYPE="${{ inputs.bump_type }}"
+            fi
+            IFS='.' read -r MAJOR MINOR PATCH <<< "${LATEST_VERSION:-1.0.0}"
+            case "$BUMP_TYPE" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+              *) echo "Unsupported bump type: $BUMP_TYPE"; exit 1 ;;
+            esac
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            BUMP_SOURCE="$BUMP_TYPE"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "previous_tag=$LATEST" >> "$GITHUB_OUTPUT"
-          echo "Next version: $VERSION (from $LATEST)"
+          echo "Next version: $VERSION (source: $BUMP_SOURCE, previous tag: $LATEST)"
 
       - name: Bump version in app/build.gradle
         run: |
