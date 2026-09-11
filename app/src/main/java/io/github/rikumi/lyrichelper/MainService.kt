@@ -40,6 +40,7 @@ import com.android.volley.Request
 import com.android.volley.RequestQueue
 import com.android.volley.Response
 import com.android.volley.toolbox.JsonObjectRequest
+import com.android.volley.toolbox.StringRequest
 import com.android.volley.toolbox.Volley
 import org.json.JSONArray
 import org.json.JSONObject
@@ -51,13 +52,21 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 const val ACTION_EDITOR_TOGGLE_PLAYBACK = "io.github.rikumi.lyrichelper.action.EDITOR_TOGGLE_PLAYBACK"
+const val ACTION_EDITOR_SKIP_PREVIOUS = "io.github.rikumi.lyrichelper.action.EDITOR_SKIP_PREVIOUS"
+const val ACTION_EDITOR_SKIP_NEXT = "io.github.rikumi.lyrichelper.action.EDITOR_SKIP_NEXT"
+const val ACTION_EDITOR_SEEK_FORWARD = "io.github.rikumi.lyrichelper.action.EDITOR_SEEK_FORWARD"
+const val ACTION_EDITOR_SEEK_BACKWARD = "io.github.rikumi.lyrichelper.action.EDITOR_SEEK_BACKWARD"
 const val ACTION_EDITOR_START = "io.github.rikumi.lyrichelper.action.EDITOR_START"
 const val ACTION_EDITOR_STOP = "io.github.rikumi.lyrichelper.action.EDITOR_STOP"
+const val ACTION_SKIP_NEXT_TRACK = "io.github.rikumi.lyrichelper.action.SKIP_NEXT_TRACK"
 const val ACTION_SEARCH_LYRICS = "io.github.rikumi.lyrichelper.action.SEARCH_LYRICS"
 const val ACTION_RELOAD_LOCAL_LYRICS = "io.github.rikumi.lyrichelper.action.RELOAD_LOCAL_LYRICS"
-const val EXTRA_EDITOR_TITLE = "editor_title"
-const val EXTRA_EDITOR_ARTIST = "editor_artist"
-const val EXTRA_EDITOR_PACKAGE = "editor_package"
+
+internal fun defaultLyricSearchQuery(title: String, artist: String): String =
+    "$title $artist"
+        .replace(Regex("\\s*[（(][^（）()]*[）)]"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
 
 class MainService : NotificationListenerService() {
 
@@ -78,6 +87,9 @@ class MainService : NotificationListenerService() {
     private var overlayParams: WindowManager.LayoutParams? = null
     private var activeResultId = -1
     private var requestedResultId = -1
+    private var lyricSearchRequestToken = 0
+    private var lyricSearchHandledToken = 0
+    private var lyricSearchInFlightKey = ""
     private var publishedPlayerKey = ""
     private var observedSessionToken: MediaSession.Token? = null
     private var observedController: MediaController? = null
@@ -88,11 +100,10 @@ class MainService : NotificationListenerService() {
     private var lyricBoundaryRunnable: Runnable? = null
     private var editorPauseRunnable: Runnable? = null
     // 数据来源：NoHeartPen/Kanji2Hanzi 的公开《简日汉字对照表》。
-    private val commonSimplifiedToJapanese by lazy { loadKanjiTable("simplified_to_japanese_common.tsv") }
     private val settingsChangeListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         val overlaySettingChanged = key?.startsWith("overlay_") == true || key?.startsWith("lyric_animation_") == true
         val searchRequested = key == "lyric_search_requested" && settingsPrefs().getBoolean("lyric_search_requested", false)
-        if (searchRequested || overlaySettingChanged || key == "current_song_offset_ms" || key == "selected_lyric_id" || key == "lyric_selection_manual" || key == "lyric_text_replacements" || key?.startsWith("replace_") == true) {
+        if (searchRequested || overlaySettingChanged || key == "current_song_offset_ms" || key == "selected_lyric_id" || key == "lyric_selection_manual") {
             handler.post {
                 if (searchRequested) {
                     settingsPrefs().edit().putBoolean("lyric_search_requested", false).apply()
@@ -100,13 +111,12 @@ class MainService : NotificationListenerService() {
                 }
                 if (overlaySettingChanged) applyOverlaySettings()
                 if (key == "current_song_offset_ms") reloadLyricsAfterSongOffsetChange()
-                if (key == "lyric_text_replacements" || key?.startsWith("replace_") == true) reloadLyricsAfterTextReplacementChange()
                 refreshCurrentLyricDisplay()
             }
         }
     }
 
-    private fun searchCurrentSongLyrics() {
+    private fun searchCurrentSongLyrics(): Boolean {
         val prefs = settingsPrefs()
         val title = observedTitle.ifBlank { prefs.getString("now_title", "") ?: "" }
         val artist = observedArtist.ifBlank { prefs.getString("now_artist", "") ?: "" }
@@ -114,13 +124,15 @@ class MainService : NotificationListenerService() {
         if (title.isBlank() || artist.isBlank()) {
             prefs.edit().putBoolean("lyric_searching", false).apply()
             showSearchToast("未检测到正在播放的歌曲")
-            return
+            return false
         }
+        if (prefs.getBoolean("lyric_searching", false)) return false
         if (prefs.getString("lyric_search_query", "").isNullOrBlank()) {
-            prefs.edit().putString("lyric_search_query", "$title $artist").apply()
+            prefs.edit().putString("lyric_search_query", defaultLyricSearchQuery(title, artist)).apply()
         }
         prefs.edit().putBoolean("lyric_force_search", true).apply()
         refreshLyrics(title, artist, album, observedController?.playbackState?.position ?: 0L)
+        return true
     }
     private val mediaControllerCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) {
@@ -139,6 +151,7 @@ class MainService : NotificationListenerService() {
             if (title.isBlank()) return
             handler.post {
                 isPlaying = state?.state == STATE_PLAYING
+                publishPlaybackState(state)
                 if (!isPlaying) {
                     lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
                     lyricBoundaryRunnable = null
@@ -156,6 +169,20 @@ class MainService : NotificationListenerService() {
             observedController = null
             observedSessionToken = null
         }
+    }
+
+    private fun publishPlaybackState(state: android.media.session.PlaybackState?) {
+        val playbackState = state ?: return
+        val metadata = observedController?.metadata
+        settingsPrefs().edit()
+            .putString("playback_title", observedTitle)
+            .putString("playback_artist", observedArtist)
+            .putString("playback_package", observedPackageName)
+            .putLong("playback_position_ms", playbackState.position.coerceAtLeast(0L))
+            .putLong("playback_duration_ms", metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L)
+            .putLong("playback_updated_elapsed", SystemClock.elapsedRealtime())
+            .putBoolean("playback_is_playing", playbackState.state == STATE_PLAYING)
+            .apply()
     }
 
     override fun onCreate() {
@@ -188,9 +215,11 @@ class MainService : NotificationListenerService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_SKIP_NEXT_TRACK -> {
+                observedController?.transportControls?.skipToNext()
+            }
             ACTION_SEARCH_LYRICS -> {
-                showSearchToast("正在搜索歌词…")
-                searchCurrentSongLyrics()
+                if (searchCurrentSongLyrics()) showSearchToast("正在搜索歌词…")
             }
             ACTION_RELOAD_LOCAL_LYRICS -> {
                 if (observedTitle.isNotBlank() && observedArtist.isNotBlank()) {
@@ -199,12 +228,7 @@ class MainService : NotificationListenerService() {
                 }
             }
             ACTION_EDITOR_START -> {
-                settingsPrefs().edit()
-                    .putBoolean("editor_active", true)
-                    .putString("editor_target_title", intent.getStringExtra(EXTRA_EDITOR_TITLE).orEmpty())
-                    .putString("editor_target_artist", intent.getStringExtra(EXTRA_EDITOR_ARTIST).orEmpty())
-                    .putString("editor_target_package", intent.getStringExtra(EXTRA_EDITOR_PACKAGE).orEmpty())
-                    .apply()
+                settingsPrefs().edit().putBoolean("editor_active", true).apply()
                 scheduleEditorPause()
             }
             ACTION_EDITOR_STOP -> {
@@ -213,16 +237,20 @@ class MainService : NotificationListenerService() {
                 editorPauseRunnable = null
             }
             ACTION_EDITOR_TOGGLE_PLAYBACK -> {
-                val prefs = settingsPrefs()
-                val matches = prefs.getBoolean("editor_active", false)
-                    && prefs.getString("editor_target_title", "") == observedTitle
-                    && prefs.getString("editor_target_artist", "") == observedArtist
-                    && prefs.getString("editor_target_package", "") == observedPackageName
-                if (!matches) return START_NOT_STICKY
                 observedController?.let { controller ->
                     if (controller.playbackState?.state == STATE_PLAYING) controller.transportControls.pause()
                     else controller.transportControls.play()
                 }
+            }
+            ACTION_EDITOR_SKIP_PREVIOUS -> observedController?.transportControls?.skipToPrevious()
+            ACTION_EDITOR_SKIP_NEXT -> observedController?.transportControls?.skipToNext()
+            ACTION_EDITOR_SEEK_FORWARD -> observedController?.let { controller ->
+                val state = controller.playbackState
+                if (state != null) controller.transportControls.seekTo(state.position + 10_000L)
+            }
+            ACTION_EDITOR_SEEK_BACKWARD -> observedController?.let { controller ->
+                val state = controller.playbackState
+                if (state != null) controller.transportControls.seekTo((state.position - 10_000L).coerceAtLeast(0L))
             }
         }
         return START_NOT_STICKY
@@ -232,11 +260,7 @@ class MainService : NotificationListenerService() {
         editorPauseRunnable?.let { handler.removeCallbacks(it) }
         editorPauseRunnable = null
         val prefs = settingsPrefs()
-        if (!prefs.getBoolean("editor_active", false)
-            || prefs.getString("editor_target_title", "") != observedTitle
-            || prefs.getString("editor_target_artist", "") != observedArtist
-            || prefs.getString("editor_target_package", "") != observedPackageName
-        ) return
+        if (!prefs.getBoolean("editor_active", false)) return
         val controller = observedController ?: return
         val state = controller.playbackState ?: return
         if (state.state != STATE_PLAYING) return
@@ -248,9 +272,6 @@ class MainService : NotificationListenerService() {
             if (latest != null && latest === controller
                 && latestState?.state == STATE_PLAYING
                 && settingsPrefs().getBoolean("editor_active", false)
-                && settingsPrefs().getString("editor_target_title", "") == observedTitle
-                && settingsPrefs().getString("editor_target_artist", "") == observedArtist
-                && settingsPrefs().getString("editor_target_package", "") == observedPackageName
             ) latest.transportControls.pause()
         }
         editorPauseRunnable = runnable
@@ -452,6 +473,7 @@ class MainService : NotificationListenerService() {
     private fun cloudMusicRequest(
         route: String,
         musicKey: String? = null,
+        requestToken: Int? = null,
         callback: (JSONObject) -> Unit,
     ) {
         val request = JsonObjectRequest(
@@ -461,6 +483,11 @@ class MainService : NotificationListenerService() {
             Response.Listener<JSONObject> { callback(it) },
             Response.ErrorListener { e ->
                 if (musicKey != null && musicKey != currentMusic) return@ErrorListener
+                if (requestToken != null) {
+                    if (requestToken != lyricSearchRequestToken || requestToken == lyricSearchHandledToken) return@ErrorListener
+                    lyricSearchHandledToken = requestToken
+                    lyricSearchInFlightKey = ""
+                }
                 currentMusic = ""
                 settingsPrefs().edit().putBoolean("lyric_searching", false).apply()
                 showMessage("歌词获取失败，正在重试…")
@@ -473,6 +500,13 @@ class MainService : NotificationListenerService() {
 
     private fun showSearchToast(message: String) {
         Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun parseJsonResponse(body: String): JSONObject {
+        val start = body.indexOf('{')
+        val end = body.lastIndexOf('}')
+        check(start >= 0 && end > start) { "响应不是 JSON 对象" }
+        return JSONObject(body.substring(start, end + 1))
     }
 
     private fun refreshLyrics(title: String, artist: String, album: String, position: Long) {
@@ -504,7 +538,7 @@ class MainService : NotificationListenerService() {
                 .putBoolean("lyric_selection_manual", false)
                 .putBoolean("lyric_manual_search", forceSearch)
                 .putBoolean("lyric_force_search", false)
-                .putString("lyric_search_query", if (forceSearch) prefs.getString("lyric_search_query", "") ?: "" else "$title $artist")
+                .putString("lyric_search_query", if (forceSearch) prefs.getString("lyric_search_query", "") ?: "" else defaultLyricSearchQuery(title, artist))
                 .putString("lyric_search_results", "[]")
                 .apply()
             if (!forceSearch) showMessage("正在获取歌词…")
@@ -534,8 +568,26 @@ class MainService : NotificationListenerService() {
             val musicBeforeRequest = currentMusic
             val preserveLocalLyric = File("/sdcard/Music/Liri", lrcName(title, artist)).isFile
             val searchQuery = settingsPrefs().getString("lyric_search_query", "")?.trim().takeUnless { it.isNullOrBlank() } ?: "$title $artist"
-            cloudMusicRequest("/api/search/get?type=1&s=${URLEncoder.encode(searchQuery, "UTF-8")}", musicBeforeRequest) { res ->
-                if (musicBeforeRequest != currentMusic) return@cloudMusicRequest
+            val searchKey = "$musicBeforeRequest\u0000$searchQuery"
+            if (lyricSearchInFlightKey == searchKey) return
+            val requestToken = ++lyricSearchRequestToken
+            lyricSearchInFlightKey = searchKey
+            val searchSource = if (forceSearch) settingsPrefs().getString("lyric_search_source", "netease") else "netease"
+            if (searchSource == "qq") {
+                searchQqLyrics(searchQuery, musicBeforeRequest, requestToken, title, artist, album, preserveLocalLyric)
+                return
+            }
+            cloudMusicRequest(
+                "/api/search/get?type=1&s=${URLEncoder.encode(searchQuery, "UTF-8")}",
+                musicBeforeRequest,
+                requestToken,
+            ) { res ->
+                if (musicBeforeRequest != currentMusic
+                    || requestToken != lyricSearchRequestToken
+                    || requestToken == lyricSearchHandledToken
+                ) return@cloudMusicRequest
+                lyricSearchHandledToken = requestToken
+                lyricSearchInFlightKey = ""
                 runCatching {
                     val songs = res.optJSONObject("result")?.optJSONArray("songs")
                     if (songs == null || songs.length() == 0) {
@@ -554,16 +606,20 @@ class MainService : NotificationListenerService() {
                     for (song in songItems.take(8)) {
                         results.put(JSONObject()
                             .put("id", song.getLong("id"))
+                            .put("key", song.getLong("id").toString())
                             .put("title", song.optString("name"))
                             .put("artist", song.optJSONArray("artists")?.optJSONObject(0)?.optString("name", artist) ?: artist)
                             .put("album", song.optJSONObject("album")?.optString("name", album) ?: album))
                     }
+                    val selectedId = if (preserveLocalLyric) -1L else {
+                        val selected = settingsPrefs().getLong("selected_lyric_id", -1L)
+                        if ((0 until results.length()).any { results.getJSONObject(it).getLong("id") == selected }) selected else results.getJSONObject(0).getLong("id")
+                    }
                     settingsPrefs().edit()
                         .putString("lyric_search_results", results.toString())
-                        .putLong("selected_lyric_id", if (preserveLocalLyric) -1L else {
-                            val selected = settingsPrefs().getLong("selected_lyric_id", -1L)
-                            if ((0 until results.length()).any { results.getJSONObject(it).getLong("id") == selected }) selected else results.getJSONObject(0).getLong("id")
-                        })
+                        .putString("lyric_search_source", "netease")
+                        .putString("selected_lyric_key", if (preserveLocalLyric) "" else selectedId.toString())
+                        .putLong("selected_lyric_id", selectedId)
                         .putBoolean("lyric_searching", false)
                         .apply()
                     showSearchToast("找到 ${results.length()} 条歌词搜索结果")
@@ -630,6 +686,71 @@ class MainService : NotificationListenerService() {
         }
     }
 
+    private fun searchQqLyrics(
+        query: String,
+        musicBeforeRequest: String,
+        requestToken: Int,
+        title: String,
+        artist: String,
+        album: String,
+        preserveLocalLyric: Boolean,
+    ) {
+        val url = "https://oiapi.net/api/QQMusicLyric?keyword=${URLEncoder.encode(query, "UTF-8")}&page=1&limit=8&type=json"
+        val request = object : StringRequest(
+            Request.Method.GET,
+            url,
+            { body ->
+                if (musicBeforeRequest == currentMusic && requestToken == lyricSearchRequestToken && requestToken != lyricSearchHandledToken) {
+                    lyricSearchHandledToken = requestToken
+                    lyricSearchInFlightKey = ""
+                    runCatching {
+                    val root = parseJsonResponse(body)
+                    val songs = root.optJSONArray("data")
+                    if (songs == null || songs.length() == 0) error("未找到歌曲")
+                    val results = JSONArray()
+                    for (index in 0 until minOf(8, songs.length())) {
+                        val song = songs.getJSONObject(index)
+                        val singer = song.optJSONArray("singer")?.optString(0, artist) ?: artist
+                        results.put(JSONObject()
+                            .put("id", song.optLong("id", index.toLong()))
+                            .put("key", song.optString("mid"))
+                            .put("title", song.optString("name", title))
+                            .put("artist", singer)
+                            .put("album", song.optString("album", album)))
+                    }
+                    val selectedId = if (preserveLocalLyric) -1L else results.getJSONObject(0).getLong("id")
+                    val selectedKey = if (preserveLocalLyric) "" else results.getJSONObject(0).getString("key")
+                    settingsPrefs().edit()
+                        .putString("lyric_search_results", results.toString())
+                        .putString("lyric_search_source", "qq")
+                        .putLong("selected_lyric_id", selectedId)
+                        .putString("selected_lyric_key", selectedKey)
+                        .putBoolean("lyric_searching", false)
+                        .apply()
+                    showSearchToast("找到 ${results.length()} 条 QQ 歌词搜索结果")
+                    if (!preserveLocalLyric) fetchLyrics(selectedId, musicBeforeRequest, title, artist)
+                    }.onFailure { error ->
+                        settingsPrefs().edit().putBoolean("lyric_searching", false).apply()
+                        showSearchToast("QQ 歌词搜索失败：${error.message ?: "结果格式错误"}")
+                        Log.e("qqLyricSearch", "parse search response failed", error)
+                    }
+                }
+            },
+            { error ->
+                if (requestToken == lyricSearchRequestToken && requestToken != lyricSearchHandledToken) {
+                    lyricSearchHandledToken = requestToken
+                    lyricSearchInFlightKey = ""
+                    settingsPrefs().edit().putBoolean("lyric_searching", false).apply()
+                    showSearchToast("QQ 歌词搜索失败：${error.networkResponse?.statusCode ?: "网络错误"}")
+                }
+            },
+        ) {
+            override fun getHeaders(): MutableMap<String, String> = hashMapOf("Referer" to "https://y.qq.com/", "User-Agent" to "Mozilla/5.0")
+        }
+        request.setShouldCache(false)
+        queue.add(request)
+    }
+
     private fun scheduleLyricBoundary(title: String, artist: String, album: String, nextTime: Int, position: Long) {
         if (!isPlaying) return
         lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
@@ -647,7 +768,10 @@ class MainService : NotificationListenerService() {
 
     private fun fetchLyrics(id: Long, musicBeforeRequest: String, title: String, artist: String) {
         requestedResultId = id.toInt()
-        val local = if (settingsPrefs().getBoolean("lyric_selection_manual", false)) null else readLrc(title, artist)
+        val prefs = settingsPrefs()
+        val source = prefs.getString("lyric_search_source", "netease") ?: "netease"
+        val remoteKey = prefs.getString("selected_lyric_key", id.toString()) ?: id.toString()
+        val local = if (prefs.getBoolean("lyric_selection_manual", false)) null else readLrc(title, artist)
         if (local != null) {
             if (musicBeforeRequest == currentMusic) {
                 activeResultId = id.toInt()
@@ -660,23 +784,56 @@ class MainService : NotificationListenerService() {
             }
             return
         }
+        if (source == "qq") {
+            fetchQqLyric(remoteKey, id, musicBeforeRequest, title, artist)
+            return
+        }
         cloudMusicRequest("/api/song/media?id=$id", musicBeforeRequest) { res ->
             if (musicBeforeRequest != currentMusic) return@cloudMusicRequest
             if (res.has("lyric")) {
                 val lyric = res.getString("lyric")
                 activeResultId = id.toInt()
-                val prefs = settingsPrefs()
                 prefs.edit()
                     .putString("current_lyric_source", lyric)
                     .putString("current_lyric_source_key", currentMusic)
                     .apply()
-                if (prefs.getBoolean("save_lyrics_automatically", true) || prefs.getBoolean("lyric_selection_manual", false)) {
+                if (prefs.getBoolean("save_lyrics_automatically", true)
+                    || prefs.getBoolean("lyric_selection_manual", false)
+                    || prefs.getBoolean("lyric_manual_search", false)
+                ) {
                     saveLrc(title, artist, lyric)
                 }
                 parseLyrics(lyric)
                 refreshCurrentLyricDisplay()
             } else showMessage("歌曲无歌词")
         }
+    }
+
+    private fun fetchQqLyric(songMid: String, id: Long, musicBeforeRequest: String, title: String, artist: String) {
+        val url = "https://oiapi.net/api/QQMusicLyric?id=${URLEncoder.encode(songMid, "UTF-8")}&format=lrc&type=json"
+        val request = object : StringRequest(Request.Method.GET, url, { body ->
+            if (musicBeforeRequest == currentMusic) runCatching {
+                val json = parseJsonResponse(body)
+                val lyric = normalizeQqLyric(json.optJSONObject("data")?.optString("conteng")?.takeIf { it.isNotBlank() }
+                    ?: json.optString("message").takeIf { it.contains("[") && it.isNotBlank() }
+                    ?: error("歌曲无歌词"))
+                activeResultId = id.toInt()
+                settingsPrefs().edit()
+                    .putString("current_lyric_source", lyric)
+                    .putString("current_lyric_source_key", currentMusic)
+                    .apply()
+                val prefs = settingsPrefs()
+                if (prefs.getBoolean("save_lyrics_automatically", true) || prefs.getBoolean("lyric_selection_manual", false) || prefs.getBoolean("lyric_manual_search", false)) saveLrc(title, artist, lyric)
+                parseLyrics(lyric)
+                refreshCurrentLyricDisplay()
+            }.onFailure { showMessage("歌曲无歌词") }
+        }, { error ->
+            if (musicBeforeRequest == currentMusic) showSearchToast("QQ 歌词获取失败：${error.networkResponse?.statusCode ?: "网络错误"}")
+        }) {
+            override fun getHeaders(): MutableMap<String, String> = hashMapOf("Referer" to "https://y.qq.com/", "User-Agent" to "Mozilla/5.0")
+        }
+        request.setShouldCache(false)
+        queue.add(request)
     }
 
     private fun publishPlayer(title: String, artist: String, album: String, icon: Icon?, metadataBitmap: Bitmap?) {
@@ -715,6 +872,10 @@ class MainService : NotificationListenerService() {
 
     private fun lrcName(title: String, artist: String) = "$title - $artist.lrc".replace(Regex("[\\\\/:*?\"<>|]"), "_")
 
+    private fun normalizeQqLyric(lyrics: String): String {
+        return if (lyrics.trim() == "[00:00:00]此歌曲为没有填词的纯音乐，请您欣赏") "" else lyrics
+    }
+
     private fun readLrc(title: String, artist: String): String? = runCatching {
         val name = lrcName(title, artist)
         File("/sdcard/Music/Liri", name).takeIf { it.isFile }?.readText()
@@ -743,7 +904,7 @@ class MainService : NotificationListenerService() {
         settingsPrefs().edit().putInt("current_song_offset_ms", songOffset).apply()
         val timeTagRegex = Regex("\\[(\\d+):(\\d{1,2})(?:[.:](\\d+))?\\]")
         Regex("(\\[[\\d.:]+])+([^\\[\\n]*)").findAll(lyrics).forEach { line ->
-            val content = applyTextReplacements(line.groupValues[2])
+            val content = line.groupValues[2]
             timeTagRegex.findAll(line.value).forEach { tag ->
                 val minutes = tag.groupValues[1].toLongOrNull() ?: return@forEach
                 val seconds = tag.groupValues[2].toLongOrNull() ?: return@forEach
@@ -760,40 +921,8 @@ class MainService : NotificationListenerService() {
                 currentMusicLyrics.append(time, content.trim())
             }
         }
+        settingsPrefs().edit().putString("current_lyric_loaded_key", currentMusic).apply()
     }
-
-    private fun applyTextReplacements(input: String): String {
-        val prefs = settingsPrefs()
-        var result = input
-        if (prefs.getBoolean("replace_remove_kana_annotations", false)) {
-            result = result.replace(Regex("\\([^()]*[\\u3040-\\u309F\\u30A0-\\u30FF]+[^()]*\\)"), "")
-        }
-        if (prefs.getBoolean("replace_full_width_space", false)) result = result.replace('\u3000', ' ')
-        val map = if (prefs.getBoolean("replace_simplified_chinese", false)) commonSimplifiedToJapanese else emptyMap()
-        if (map.isNotEmpty()) result = result.map { map[it] ?: it }.joinToString("")
-        runCatching {
-            val rules = JSONArray(prefs.getString("lyric_text_replacements", "[]"))
-            for (i in 0 until rules.length()) {
-                val rule = rules.getJSONObject(i)
-                val pattern = rule.optString("pattern")
-                if (pattern.isNotEmpty()) result = Regex(pattern).replace(result, rule.optString("replacement"))
-            }
-        }.onFailure { Log.w("Liri", "invalid lyric replacement rule", it) }
-        return result
-    }
-
-    private fun loadKanjiTable(assetName: String): Map<Char, Char> = runCatching {
-        val table = LinkedHashMap<Char, Char>()
-        assets.open(assetName).bufferedReader(Charsets.UTF_8).useLines { lines ->
-            lines.forEach { line ->
-                val fields = line.split('\t')
-                if (fields.size == 2 && fields[0].length == 1 && fields[1].length == 1) {
-                    table.putIfAbsent(fields[0][0], fields[1][0])
-                }
-            }
-        }
-        table
-    }.getOrDefault(emptyMap())
 
     private fun reloadLyricsAfterSongOffsetChange() {
         if (currentMusic.isBlank()) return
@@ -811,20 +940,6 @@ class MainService : NotificationListenerService() {
         val updated = withOffsetTag(source, requested)
         saveLrc(title, artist, updated)
         parseLyrics(updated)
-        currentLine = ""
-        nextLine = ""
-    }
-
-    private fun reloadLyricsAfterTextReplacementChange() {
-        if (currentMusic.isBlank()) return
-        val separator = currentMusic.lastIndexOf(" - ")
-        if (separator <= 0) return
-        val prefs = settingsPrefs()
-        val source = readLrc(currentMusic.substring(0, separator), currentMusic.substring(separator + 3))
-            ?: prefs.getString("current_lyric_source", null)
-                ?.takeIf { prefs.getString("current_lyric_source_key", null) == currentMusic }
-            ?: return
-        parseLyrics(source)
         currentLine = ""
         nextLine = ""
     }
@@ -1024,7 +1139,7 @@ class MainService : NotificationListenerService() {
             textSize = 13f
             gravity = Gravity.CENTER_VERTICAL or Gravity.START
             setSingleLine(true)
-            fontFeatureSettings = "kern"
+            fontFeatureSettings = "kern,halt"
             setShadowLayer(3f, 0f, 1f, Color.BLACK)
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
         }
