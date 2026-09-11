@@ -38,7 +38,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -60,21 +59,30 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextAlign
 import android.graphics.BitmapFactory
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import org.json.JSONArray
-import org.json.JSONObject
 import top.yukonga.miuix.kmp.icon.MiuixIcons
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.ExperimentalTextApi
 import top.yukonga.miuix.kmp.icon.extended.Community
-import top.yukonga.miuix.kmp.icon.extended.Copy
 import top.yukonga.miuix.kmp.icon.extended.Lock
 import top.yukonga.miuix.kmp.icon.extended.Tune
 import top.yukonga.miuix.kmp.icon.extended.Back
@@ -93,7 +101,16 @@ import top.yukonga.miuix.kmp.theme.ThemeController
 import top.yukonga.miuix.kmp.theme.darkColorScheme
 import top.yukonga.miuix.kmp.theme.lightColorScheme
 
-private enum class Page { HOME, PERMISSIONS, STYLE, REPLACEMENT, EDITOR }
+private enum class Page { HOME, PERMISSIONS, STYLE, EDITOR }
+
+@OptIn(ExperimentalTextApi::class)
+private val MaterialSymbolsOutlined = FontFamily(
+    Font(
+        R.font.material_symbols_outlined,
+        FontWeight.Normal,
+        variationSettings = FontVariation.Settings(FontVariation.weight(200)),
+    ),
+)
 
 class MainActivity : ComponentActivity() {
     private var resumeToken by mutableIntStateOf(0)
@@ -129,18 +146,31 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun LiriNavigation(refreshToken: Int) {
     var page by remember { mutableStateOf(Page.HOME) }
-    BackHandler(enabled = page != Page.HOME) { page = Page.HOME }
-    when (page) {
-        Page.HOME -> HomeScreen(onPermissions = { page = Page.PERMISSIONS }, onStyle = { page = Page.STYLE }, onReplacement = { page = Page.REPLACEMENT }, onEditor = { page = Page.EDITOR })
-        Page.PERMISSIONS -> PermissionScreen(refreshToken) { page = Page.HOME }
-        Page.STYLE -> StyleScreen { page = Page.HOME }
-        Page.REPLACEMENT -> ReplacementScreen { page = Page.HOME }
-        Page.EDITOR -> LocalLrcEditorScreen { page = Page.HOME }
+    var transitionDirection by remember { mutableIntStateOf(1) }
+    fun navigate(target: Page) {
+        transitionDirection = if (target == Page.HOME) -1 else 1
+        page = target
+    }
+    BackHandler(enabled = page != Page.HOME) { navigate(Page.HOME) }
+    AnimatedContent(
+        targetState = page,
+        transitionSpec = {
+            (fadeIn(animationSpec = tween(220)) + slideInHorizontally(animationSpec = tween(280)) { it * transitionDirection / 4 })
+                .togetherWith(fadeOut(animationSpec = tween(160)) + slideOutHorizontally(animationSpec = tween(220)) { -it * transitionDirection / 4 })
+        },
+        label = "page_transition",
+    ) { currentPage ->
+        when (currentPage) {
+            Page.HOME -> HomeScreen(onPermissions = { navigate(Page.PERMISSIONS) }, onStyle = { navigate(Page.STYLE) }, onEditor = { navigate(Page.EDITOR) })
+            Page.PERMISSIONS -> PermissionScreen(refreshToken) { navigate(Page.HOME) }
+            Page.STYLE -> StyleScreen { navigate(Page.HOME) }
+            Page.EDITOR -> LocalLrcEditorScreen { navigate(Page.HOME) }
+        }
     }
 }
 
 @Composable
-private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onReplacement: () -> Unit, onEditor: () -> Unit) {
+private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onEditor: () -> Unit) {
     val context = LocalContext.current
     var player by remember { mutableStateOf(readPlayerSnapshot(context)) }
     DisposableEffect(context) {
@@ -163,8 +193,6 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onReplace
                 CouixCategoryRow(MiuixIcons.Lock, "授予系统权限", onPermissions)
                 CouixItemDivider()
                 CouixCategoryRow(MiuixIcons.Tune, "位置与样式", onStyle)
-                CouixItemDivider()
-                CouixCategoryRow(MiuixIcons.Copy, "文字替换", onReplacement)
                 }
             }
             item {
@@ -174,11 +202,6 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onReplace
             item {
                 CouixSmallTitle("歌词编辑")
                 LyricEditingCard(player, context) {
-                    context.settingsPrefs().edit()
-                        .putString("editor_target_title", player.title)
-                        .putString("editor_target_artist", player.artist)
-                        .putString("editor_target_package", context.settingsPrefs().getString("playback_package", ""))
-                        .apply()
                     onEditor()
                 }
             }
@@ -191,7 +214,7 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onReplace
     }
 }
 
-private data class SearchResult(val id: Long, val title: String, val artist: String, val album: String)
+private data class SearchResult(val id: Long, val key: String, val title: String, val artist: String, val album: String)
 private data class PlayerSnapshot(val title: String, val artist: String, val cover: String?, val coverVersion: Long, val currentLyric: String, val nextLyric: String, val lyricProgress: Float, val lyricStartElapsed: Long, val lyricDurationMs: Long, val results: List<SearchResult>, val selectedId: Long, val autoSave: Boolean, val songOffsetMs: Int, val serviceStarted: Boolean, val localLrcExists: Boolean, val manualSearch: Boolean, val searchingLyrics: Boolean)
 
 private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
@@ -200,7 +223,7 @@ private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
         val array = JSONArray(prefs.getString("lyric_search_results", "[]"))
         (0 until array.length()).map { item ->
             val value = array.getJSONObject(item)
-            SearchResult(value.getLong("id"), value.optString("title"), value.optString("artist"), value.optString("album"))
+            SearchResult(value.getLong("id"), value.optString("key", value.getLong("id").toString()), value.optString("title"), value.optString("artist"), value.optString("album"))
         }
     }.getOrDefault(emptyList())
     return PlayerSnapshot(
@@ -240,6 +263,7 @@ private fun clearLocalLrc(title: String, artist: String): Result<Unit> = runCatc
 
 @Composable
 private fun NowPlayingCard(player: PlayerSnapshot) {
+    val context = LocalContext.current
     val cover = remember(player.cover, player.coverVersion) { player.cover?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() } }
     var liveProgress by remember(player.title, player.currentLyric, player.lyricStartElapsed) {
         mutableFloatStateOf(player.lyricProgress)
@@ -275,6 +299,22 @@ private fun NowPlayingCard(player: PlayerSnapshot) {
                 subtitle = if (!player.serviceStarted) "等待服务启动…" else player.artist,
                 modifier = Modifier.weight(1f),
             )
+            top.yukonga.miuix.kmp.basic.IconButton(onClick = {
+                context.startService(Intent(context, MainService::class.java).setAction(ACTION_SKIP_NEXT_TRACK))
+            }) {
+                BasicText(
+                    text = "skip_next",
+                    style = MiuixTheme.textStyles.body1.copy(
+                        color = if (isSystemInDarkTheme()) Color.White else Color(0xFF212121),
+                        fontFamily = MaterialSymbolsOutlined,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Normal,
+                        fontFeatureSettings = "liga",
+                        textAlign = TextAlign.Center,
+                    ),
+                    modifier = Modifier.size(32.dp),
+                )
+            }
         }
         val hasLyrics = player.currentLyric.isNotBlank() || player.nextLyric.isNotBlank()
         CouixPreferenceText(
@@ -337,25 +377,20 @@ private fun LyricEditingCard(player: PlayerSnapshot, context: Context, onEditor:
             subtitle = if (player.autoSave) "开启：自动保存下载的歌词到 Music/Liri 路径" else "关闭：仅保存手动选择歌词到 Music/Liri 路径",
         )
         CouixItemDivider()
-        var clearMenuVisible by remember { mutableStateOf(false) }
-        var actionRowHeightPx by remember { mutableIntStateOf(0) }
+        var showClearDialog by remember { mutableStateOf(false) }
         CouixActionPairRow(
             leftTitle = "编辑本地歌词",
             onLeftClick = onEditor,
             rightTitle = "清空本地歌词",
-            onRightClick = { clearMenuVisible = true },
-            modifier = Modifier.onGloballyPositioned { actionRowHeightPx = it.size.height },
+            onRightClick = { showClearDialog = true },
         )
-        CouixDropdownPopup(
-            expanded = clearMenuVisible,
-            anchorHeightPx = actionRowHeightPx,
-            onDismissRequest = { clearMenuVisible = false },
-        ) {
-            CouixDropdownItem(
-                text = "确认清空歌词",
-                selected = false,
-                onClick = {
-                    clearMenuVisible = false
+        if (showClearDialog) {
+            CouixConfirmDialog(
+                text = "确认清空歌词？",
+                confirmLabel = "确认",
+                dismissLabel = "取消",
+                onConfirm = {
+                    showClearDialog = false
                     clearLocalLrc(player.title, player.artist).onSuccess {
                         Toast.makeText(context, "歌词已清空", Toast.LENGTH_SHORT).show()
                         context.startService(Intent(context, MainService::class.java).setAction(ACTION_RELOAD_LOCAL_LYRICS))
@@ -363,6 +398,7 @@ private fun LyricEditingCard(player: PlayerSnapshot, context: Context, onEditor:
                         Toast.makeText(context, "清空歌词失败：${it.message ?: "无权限"}", Toast.LENGTH_SHORT).show()
                     }
                 },
+                onDismiss = { showClearDialog = false },
             )
         }
     }
@@ -371,18 +407,19 @@ private fun LyricEditingCard(player: PlayerSnapshot, context: Context, onEditor:
 @Composable
 private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
     var searchQuery by remember(player.title, player.artist) {
-        mutableStateOf("${player.title} ${player.artist}".trim())
+        mutableStateOf(defaultLyricSearchQuery(player.title, player.artist))
     }
     LaunchedEffect(player.title, player.artist) {
-        searchQuery = "${player.title} ${player.artist}".trim()
+        searchQuery = defaultLyricSearchQuery(player.title, player.artist)
     }
     CouixCard {
-        fun requestSearch() {
+        fun requestSearch(source: String) {
             context.settingsPrefs().edit()
                 .putString("lyric_search_query", searchQuery.trim())
+                .putString("lyric_search_source", source)
                 .putBoolean("lyric_manual_search", true)
                 .apply()
-            Toast.makeText(context, "正在搜索歌词…", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "正在搜索${if (source == "qq") "QQ" else "网易"}歌词…", Toast.LENGTH_SHORT).show()
             context.startService(Intent(context, MainService::class.java).setAction(ACTION_SEARCH_LYRICS))
         }
         Row(
@@ -397,18 +434,23 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
                 cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
                 modifier = Modifier
                     .weight(1f)
+                    .padding(end = 8.dp)
                     .background(MiuixTheme.colorScheme.surfaceContainer, RoundedCornerShape(10.dp))
                     .padding(horizontal = 8.dp, vertical = 6.dp),
             )
-            BasicText(
-                text = "搜索",
-                style = MiuixTheme.textStyles.body1.copy(
-                    color = MiuixTheme.colorScheme.primary.copy(alpha = if (player.searchingLyrics) 0.38f else 1f),
-                ),
-                modifier = Modifier
-                    .padding(start = 14.dp)
-                    .clickable(enabled = !player.searchingLyrics, onClick = ::requestSearch),
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                listOf("netease" to "网易", "qq" to "QQ").forEach { (source, label) ->
+                    BasicText(
+                        text = label,
+                        style = MiuixTheme.textStyles.body2.copy(
+                            color = MiuixTheme.colorScheme.primary.copy(alpha = if (player.searchingLyrics) 0.38f else 1f),
+                        ),
+                        modifier = Modifier
+                            .clickable(enabled = !player.searchingLyrics) { requestSearch(source) }
+                            .padding(horizontal = 6.dp, vertical = 8.dp),
+                    )
+                }
+            }
         }
         if (player.searchingLyrics || player.manualSearch || player.results.isNotEmpty()) {
             CouixItemDivider()
@@ -427,6 +469,7 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
                     modifier = Modifier.fillMaxWidth().clickable {
                         context.settingsPrefs().edit()
                             .putLong("selected_lyric_id", result.id)
+                            .putString("selected_lyric_key", result.key)
                             .putBoolean("lyric_selection_manual", true)
                             .apply()
                     }.padding(horizontal = 16.dp, vertical = 0.dp),
@@ -494,99 +537,6 @@ private fun hasStorageAccess(context: Context): Boolean = if (Build.VERSION.SDK_
     Environment.isExternalStorageManager()
 } else {
     context.checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") == PackageManager.PERMISSION_GRANTED
-}
-
-private data class ReplacementRule(val pattern: String, val replacement: String)
-
-private const val KEY_REPLACEMENT_RULES = "lyric_text_replacements"
-private const val KEY_REMOVE_KANA = "replace_remove_kana_annotations"
-private const val KEY_FULL_WIDTH_SPACE = "replace_full_width_space"
-private const val KEY_COMMON_KANJI = "replace_simplified_chinese"
-
-private fun readReplacementRules(context: Context): List<ReplacementRule> = runCatching {
-    val array = JSONArray(context.settingsPrefs().getString(KEY_REPLACEMENT_RULES, "[]"))
-    (0 until array.length()).map { i ->
-        val item = array.getJSONObject(i)
-        ReplacementRule(item.optString("pattern"), item.optString("replacement"))
-    }
-}.getOrDefault(emptyList())
-
-private fun saveReplacementRules(context: Context, rules: List<ReplacementRule>) {
-    val array = JSONArray()
-    rules.forEach { array.put(JSONObject().put("pattern", it.pattern).put("replacement", it.replacement)) }
-    context.settingsPrefs().edit().putString(KEY_REPLACEMENT_RULES, array.toString()).apply()
-}
-
-@Composable
-private fun ReplacementScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    var rules by remember { mutableStateOf(readReplacementRules(context)) }
-    var removeKana by remember { mutableStateOf(context.settingsPrefs().getBoolean(KEY_REMOVE_KANA, false)) }
-    var fullWidthSpace by remember { mutableStateOf(context.settingsPrefs().getBoolean(KEY_FULL_WIDTH_SPACE, false)) }
-    var commonKanji by remember { mutableStateOf(context.settingsPrefs().getBoolean(KEY_COMMON_KANJI, false)) }
-    val listState = rememberLazyListState()
-    Scaffold(containerColor = MiuixTheme.colorScheme.surface, contentWindowInsets = WindowInsets(0.dp), topBar = { CouixTopAppBar("文字替换", dividerProgress = couixTopBarDividerProgress(listState), navigationIcon = { CouixBackButton(onBack) }) }) { padding ->
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding).couixOverscroll(listState)) {
-            item {
-                CouixSmallTitle("内置替换")
-                CouixCard {
-                    CouixSwitchPreference(removeKana, { removeKana = it; setBool(context, KEY_REMOVE_KANA, it) }, "取消假名标注", subtitle = "去除半角括号内的平假名或片假名")
-                    CouixItemDivider()
-                    CouixSwitchPreference(fullWidthSpace, { fullWidthSpace = it; setBool(context, KEY_FULL_WIDTH_SPACE, it) }, "全角空格改为半角")
-                    CouixItemDivider()
-                    CouixSwitchPreference(commonKanji, { commonKanji = it; setBool(context, KEY_COMMON_KANJI, it) }, "常见简体字转日文汉字", subtitle = "因上下文不同，可能带来错误")
-                }
-            }
-            item {
-                CouixSmallTitle("自定义替换")
-                CouixCard {
-                    rules.forEachIndexed { index, rule ->
-                        if (index > 0) CouixItemDivider()
-                        ReplacementRuleEditor(rule, onRuleChanged = { changed ->
-                            rules = rules.toMutableList().also { it[index] = changed }
-                            saveReplacementRules(context, rules)
-                        }, onRemove = {
-                            rules = rules.toMutableList().also { it.removeAt(index) }
-                            saveReplacementRules(context, rules)
-                        })
-                    }
-                    if (rules.isNotEmpty()) CouixItemDivider()
-                    BasicText(
-                        text = "添加替换规则",
-                        style = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.primary),
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            rules = rules + ReplacementRule("", "")
-                            saveReplacementRules(context, rules)
-                        }.padding(horizontal = 16.dp, vertical = 16.dp),
-                    )
-                }
-            }
-            item { Spacer(Modifier.height(20.dp)) }
-        }
-    }
-}
-
-@Composable
-private fun ReplacementRuleEditor(rule: ReplacementRule, onRuleChanged: (ReplacementRule) -> Unit, onRemove: () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        BasicText("正则匹配串", style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.onSurfaceVariantSummary))
-        BasicTextField(
-            value = rule.pattern,
-            onValueChange = { onRuleChanged(rule.copy(pattern = it)) },
-            textStyle = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurface),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp).background(MiuixTheme.colorScheme.surfaceContainer, RoundedCornerShape(8.dp)).padding(10.dp),
-        )
-        BasicText("替换串（可为空）", style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.onSurfaceVariantSummary), modifier = Modifier.padding(top = 10.dp))
-        BasicTextField(
-            value = rule.replacement,
-            onValueChange = { onRuleChanged(rule.copy(replacement = it)) },
-            textStyle = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurface),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(top = 4.dp).background(MiuixTheme.colorScheme.surfaceContainer, RoundedCornerShape(8.dp)).padding(10.dp),
-        )
-        BasicText("删除", style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.primary), modifier = Modifier.clickable(onClick = onRemove).padding(top = 10.dp))
-    }
 }
 
 @Composable

@@ -3,10 +3,12 @@ package io.github.rikumi.lyrichelper
 import android.content.Intent
 import android.os.SystemClock
 import android.widget.Toast
+import android.icu.text.Transliterator
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,9 +23,11 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.platform.LocalContext
@@ -36,6 +40,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,9 +53,12 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.TransformedText
@@ -59,6 +67,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import top.yukonga.miuix.kmp.icon.extended.Redo
 import top.yukonga.miuix.kmp.icon.extended.Undo
 import java.io.File
@@ -80,20 +90,53 @@ private val editorLeadingTimeTags = Regex("^(?:\\[\\d{1,3}:\\d{1,2}(?:[.:]\\d{1,
 private val editorOffsetTag = Regex("^\\[offset\\s*:\\s*(-?\\d+)\\]", RegexOption.IGNORE_CASE)
 private val editorMonospace = FontFamily(Font(R.font.maple_mono_regular))
 
+@OptIn(ExperimentalTextApi::class)
+private val editorMaterialSymbols = FontFamily(
+    Font(
+        R.font.material_symbols_outlined,
+        FontWeight.Normal,
+        variationSettings = FontVariation.Settings(FontVariation.weight(200)),
+    ),
+)
+private data class EditorTrack(val title: String, val artist: String)
+
 @Composable
 internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = context.settingsPrefs()
-    val title = prefs.getString("editor_target_title", prefs.getString("now_title", "")) ?: ""
-    val artist = prefs.getString("editor_target_artist", prefs.getString("now_artist", "")) ?: ""
+    val initialTrack = remember {
+        EditorTrack(
+            prefs.getString("playback_title", prefs.getString("now_title", "")) ?: "",
+            prefs.getString("playback_artist", prefs.getString("now_artist", "")) ?: "",
+        )
+    }
+    var editorTrack by remember { mutableStateOf(initialTrack) }
+    val title = editorTrack.title
+    val artist = editorTrack.artist
     val fileName = "$title - $artist.lrc".replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
     val file = remember(fileName) { File("/sdcard/Music/Liri", fileName) }
-    val savedText = remember(file.path) { runCatching { file.readText() }.getOrDefault("") }
+    // 没有本地歌词时只在编辑器内使用空内容，打开页面不创建文件。
+    val savedText = remember(file.path) {
+        if (file.isFile) runCatching { file.readText() }.getOrDefault("") else ""
+    }
     var value by remember(file.path) { mutableStateOf(TextFieldValue(savedText)) }
     var lastSavedText by remember(file.path) { mutableStateOf(savedText) }
     var showSaveDialog by remember { mutableStateOf(false) }
+    var showFindReplaceDialog by remember { mutableStateOf(false) }
     val isDirty = value.text != lastSavedText
-    fun requestExit() { if (isDirty) showSaveDialog = true else onBack() }
+    var pendingSaveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var discardBeforePendingAction by remember { mutableStateOf(false) }
+    val latestIsDirty by rememberUpdatedState(isDirty)
+    fun requestSaveThen(action: () -> Unit, discardWhenDismissed: Boolean = false) {
+        if (latestIsDirty) {
+            pendingSaveAction = action
+            discardBeforePendingAction = discardWhenDismissed
+            showSaveDialog = true
+        } else {
+            action()
+        }
+    }
+    fun requestExit() { requestSaveThen(onBack) }
     fun saveFile(): Boolean = runCatching {
         file.parentFile?.mkdirs()
         FileOutputStream(file, false).use { it.write(value.text.toByteArray(Charsets.UTF_8)) }
@@ -138,15 +181,12 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
     DisposableEffect(fileName) {
         context.startService(Intent(context, MainService::class.java).apply {
             action = ACTION_EDITOR_START
-            putExtra(EXTRA_EDITOR_TITLE, title)
-            putExtra(EXTRA_EDITOR_ARTIST, artist)
-            putExtra(EXTRA_EDITOR_PACKAGE, prefs.getString("editor_target_package", ""))
         })
         onDispose {
             context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_STOP))
         }
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(title, artist) {
         while (true) {
             val now = context.settingsPrefs()
             val current = now.getString("playback_title", "") == title && now.getString("playback_artist", "") == artist
@@ -165,6 +205,23 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
             delay(100)
         }
     }
+    LaunchedEffect(Unit) {
+        var observedLoadedKey = "${initialTrack.title} - ${initialTrack.artist}"
+        while (true) {
+            val loadedKey = prefs.getString("current_lyric_loaded_key", "").orEmpty()
+            if (prefs.getBoolean("editor_active", false) && loadedKey.isNotBlank() && loadedKey != observedLoadedKey) {
+                val separator = loadedKey.lastIndexOf(" - ")
+                if (separator > 0) {
+                    val newTrack = EditorTrack(loadedKey.substring(0, separator), loadedKey.substring(separator + 3))
+                    if (newTrack != editorTrack) {
+                        observedLoadedKey = loadedKey
+                        requestSaveThen({ editorTrack = newTrack }, discardWhenDismissed = true)
+                    }
+                }
+            }
+            delay(100)
+        }
+    }
     LaunchedEffect(imeVisible, value.selection.start) {
         if (imeVisible) {
             delay(80)
@@ -176,7 +233,8 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
     Scaffold(
         containerColor = MiuixTheme.colorScheme.surface,
         topBar = {
-            CouixTopAppBar(
+            Column(modifier = Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surface)) {
+                CouixTopAppBar(
                 fileName,
                 navigationIcon = { CouixBackButton(::requestExit) },
                 actions = {
@@ -189,33 +247,80 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
                         top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Redo, contentDescription = "重做", tint = MiuixTheme.colorScheme.onSurface.copy(alpha = if (canRedo) 1f else 0.38f), modifier = Modifier.size(22.dp))
                     }
                 },
-            )
-        },
-        bottomBar = {
+                )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .padding(horizontal = 16.dp)
+                        .background(
+                            if (androidx.compose.foundation.isSystemInDarkTheme()) {
+                                Color.White.copy(alpha = 0.10f)
+                            } else {
+                                Color.Black.copy(alpha = 0.10f)
+                            },
+                        ),
+                )
+            }
             val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
             val barContentColor = if (darkTheme) Color.White else Color(0xFF212121)
             val trackColor = barContentColor.copy(alpha = 0.16f)
             val progressColor = MiuixTheme.colorScheme.primary
-            val progressTextColor = barContentColor
-            val barColor = if (darkTheme) Color(0xFF151515) else Color(0xFFF0F0F0)
-            Column(modifier = Modifier.fillMaxWidth().background(barColor).navigationBarsPadding().imePadding()) {
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(modifier = Modifier.weight(1f).height(24.dp), contentAlignment = Alignment.CenterStart) {
-                        Canvas(Modifier.fillMaxWidth().height(3.dp)) {
-                            drawRect(trackColor)
-                            if (durationMs > 0) drawRect(progressColor, size = size.copy(width = size.width * (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)))
-                        }
+            val progressTextColor = barContentColor.copy(alpha = 0.58f)
+            Column(modifier = Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surface)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    EditorTransportButton("replay_10", "向后 10 秒", Modifier.weight(1f), 30.sp) {
+                        context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SEEK_BACKWARD))
                     }
-                    Spacer(Modifier.width(12.dp))
-                    BasicText(
-                        "%d:%02d / %d:%02d".format(Locale.ROOT, positionMs / 60000, positionMs / 1000 % 60, durationMs / 60000, durationMs / 1000 % 60),
-                        style = MiuixTheme.textStyles.body2.copy(fontFamily = editorMonospace, fontFeatureSettings = "kern", letterSpacing = 0.sp, color = progressTextColor),
-                    )
-                    top.yukonga.miuix.kmp.basic.IconButton(onClick = { context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_TOGGLE_PLAYBACK)) }) {
-                        top.yukonga.miuix.kmp.basic.Icon(if (playing) MiuixIcons.Pause else MiuixIcons.Play, contentDescription = if (playing) "暂停" else "播放", tint = barContentColor, modifier = Modifier.size(22.dp))
+                    EditorTransportButton("skip_previous", "上一曲", Modifier.weight(1f).offset(y = (-4).dp), 36.sp) {
+                        requestSaveThen({ context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SKIP_PREVIOUS)) }, discardWhenDismissed = true)
+                    }
+                    EditorTransportButton(if (playing) "pause" else "play_arrow", if (playing) "暂停" else "播放", Modifier.weight(1f).offset(y = (-4).dp), 36.sp) {
+                        context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_TOGGLE_PLAYBACK))
+                    }
+                    EditorTransportButton("skip_next", "下一曲", Modifier.weight(1f).offset(y = (-4).dp), 36.sp) {
+                        requestSaveThen({ context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SKIP_NEXT)) }, discardWhenDismissed = true)
+                    }
+                    EditorTransportButton("forward_10", "向前 10 秒", Modifier.weight(1f), 30.sp) {
+                        context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SEEK_FORWARD))
                     }
                 }
-                Row(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp)) {
+                    BasicText(
+                        editorTimeLabel(positionMs),
+                        style = MiuixTheme.textStyles.body2.copy(fontFamily = editorMonospace, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
+                    )
+                    BasicText(
+                        editorTimeLabel(durationMs),
+                        style = MiuixTheme.textStyles.body2.copy(fontFamily = editorMonospace, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
+                        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+                    )
+                    Canvas(Modifier.fillMaxWidth().height(1.dp).align(Alignment.BottomCenter)) {
+                        drawRect(trackColor)
+                        if (durationMs > 0) drawRect(progressColor, size = size.copy(width = size.width * (positionMs.toFloat() / durationMs).coerceIn(0f, 1f)))
+                    }
+                }
+            }
+            }
+        },
+        bottomBar = {
+            val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+            val barContentColor = if (darkTheme) Color.White else Color(0xFF212121)
+            val barColor = if (darkTheme) Color(0xFF151515) else Color(0xFFF0F0F0)
+            val toolbarDividerColor = if (darkTheme) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.14f)
+            Column(modifier = Modifier.fillMaxWidth().background(barColor).navigationBarsPadding().imePadding()) {
+                Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(toolbarDividerColor))
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                     EditorAction("替换标签", { top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Replace, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) { applyEdit(editorReplace(value, positionMs)) }
                     EditorAction("添加标签", { top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Add, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) { applyEdit(editorInsert(value, positionMs)) }
                     EditorAction("删除标签", { EditorDeleteIcon() }, imeVisible) { applyEdit(editorDelete(value)) }
@@ -223,6 +328,22 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
                         showLabel = !imeVisible,
                         onFormat = { applyEdit(TextFieldValue(editorFormat(value.text))) },
                         onClearAllTags = { applyEdit(editorClearAllTags(value)) },
+                        onRemoveEmptyLines = { applyEdit(editorRemoveEmptyLines(value)) },
+                        onConvertFullWidthSpaces = { applyEdit(editorConvertFullWidthSpaces(value)) },
+                        onSimplifiedToTraditional = {
+                            applyEdit(editorIcuConvert(value, "Simplified-Traditional"))
+                            Toast.makeText(context, "机器转换可能存在错误，请注意核对", Toast.LENGTH_SHORT).show()
+                        },
+                        onTraditionalToSimplified = {
+                            applyEdit(editorIcuConvert(value, "Traditional-Simplified"))
+                            Toast.makeText(context, "机器转换可能存在错误，请注意核对", Toast.LENGTH_SHORT).show()
+                        },
+                        onSimplifiedToJapanese = {
+                            applyEdit(editorSimplifiedToJapanese(context, value))
+                            Toast.makeText(context, "机器转换可能存在错误，请注意核对", Toast.LENGTH_SHORT).show()
+                        },
+                        onRemoveParentheticalAnnotations = { applyEdit(editorRemoveParentheticalAnnotations(value)) },
+                        onFindReplace = { showFindReplaceDialog = true },
                     )
                     EditorAction("保存", { top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Folder, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) {
                         runCatching {
@@ -277,11 +398,33 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
             dismissLabel = "不保存",
             onConfirm = {
                 showSaveDialog = false
-                if (saveFile()) onBack()
+                if (saveFile()) {
+                    val action = pendingSaveAction
+                    pendingSaveAction = null
+                    discardBeforePendingAction = false
+                    action?.invoke()
+                }
             },
             onDismiss = {
                 showSaveDialog = false
-                onBack()
+                if (discardBeforePendingAction) {
+                    value = TextFieldValue(savedText)
+                    undoStack.clear()
+                    redoStack.clear()
+                }
+                val action = pendingSaveAction
+                pendingSaveAction = null
+                discardBeforePendingAction = false
+                action?.invoke()
+            },
+        )
+    }
+    if (showFindReplaceDialog) {
+        EditorFindReplaceDialog(
+            onDismiss = { showFindReplaceDialog = false },
+            onConfirm = { find, replacement ->
+                showFindReplaceDialog = false
+                if (find.isNotEmpty()) applyEdit(editorFindReplace(value, find, replacement))
             },
         )
     }
@@ -296,6 +439,26 @@ private fun EditorAction(description: String, icon: @Composable () -> Unit, hide
         if (!hideLabel) BasicText(description, style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, color = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121)))
     }
 }
+
+@Composable
+private fun EditorTransportButton(icon: String, description: String, modifier: Modifier = Modifier, iconSize: androidx.compose.ui.unit.TextUnit = 30.sp, onClick: () -> Unit) {
+    top.yukonga.miuix.kmp.basic.IconButton(onClick = onClick, modifier = modifier.height(56.dp)) {
+        BasicText(
+            text = icon,
+            style = MiuixTheme.textStyles.body1.copy(
+                fontFamily = editorMaterialSymbols,
+                fontSize = iconSize,
+                color = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121),
+                fontFeatureSettings = "liga",
+                textAlign = TextAlign.Center,
+            ),
+            modifier = Modifier.size(40.dp),
+        )
+    }
+}
+
+private fun editorTimeLabel(milliseconds: Int): String =
+    "%d:%02d".format(Locale.ROOT, milliseconds.coerceAtLeast(0) / 60000, milliseconds.coerceAtLeast(0) / 1000 % 60)
 
 @Composable
 private fun EditorReplaceIcon() {
@@ -319,7 +482,19 @@ private fun EditorDeleteIcon() {
 }
 
 @Composable
-private fun EditorBatchAction(showLabel: Boolean, onFormat: () -> Unit, onClearAllTags: () -> Unit) {
+private fun EditorBatchAction(
+    showLabel: Boolean,
+    onFormat: () -> Unit,
+    onClearAllTags: () -> Unit,
+    onRemoveEmptyLines: () -> Unit,
+    onConvertFullWidthSpaces: () -> Unit,
+    onSimplifiedToTraditional: () -> Unit,
+    onTraditionalToSimplified: () -> Unit,
+    onSimplifiedToJapanese: () -> Unit,
+    onRemoveParentheticalAnnotations: () -> Unit,
+    onFindReplace: () -> Unit,
+) {
+    val batchMenuLiftPx = with(LocalDensity.current) { 12.dp.roundToPx() }
     var expanded by remember { mutableStateOf(false) }
     var popupVisible by remember { mutableStateOf(false) }
     var anchorHeightPx by remember { mutableIntStateOf(0) }
@@ -334,12 +509,206 @@ private fun EditorBatchAction(showLabel: Boolean, onFormat: () -> Unit, onClearA
             top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Tune, contentDescription = "格式化", tint = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121), modifier = Modifier.size(22.dp))
         }
         if (showLabel) BasicText("批量操作", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, color = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121)))
-        CouixDropdownPopup(expanded = popupVisible, anchorHeightPx = anchorHeightPx, onDismissRequest = { expanded = false }) {
+        CouixDropdownPopup(
+            expanded = popupVisible,
+            anchorHeightPx = anchorHeightPx,
+            extraOffsetYPx = batchMenuLiftPx,
+            onDismissRequest = { expanded = false },
+        ) {
             CouixDropdownItem("格式化歌词", selected = false, onClick = { expanded = false; onFormat() })
             CouixDropdownDivider()
             CouixDropdownItem("清除所有标签", selected = false, onClick = { expanded = false; onClearAllTags() })
+            CouixDropdownDivider()
+            CouixDropdownItem("去空行", selected = false, onClick = { expanded = false; onRemoveEmptyLines() })
+            CouixDropdownDivider()
+            CouixDropdownItem("全角空格转半角", selected = false, onClick = { expanded = false; onConvertFullWidthSpaces() })
+            CouixDropdownDivider()
+            CouixDropdownItem("去除括号标注", selected = false, onClick = { expanded = false; onRemoveParentheticalAnnotations() })
+            CouixDropdownDivider()
+            CouixDropdownItem("查找替换", selected = false, onClick = { expanded = false; onFindReplace() })
+            CouixDropdownDivider()
+            CouixDropdownItem("简→繁", selected = false, onClick = { expanded = false; onSimplifiedToTraditional() })
+            CouixDropdownDivider()
+            CouixDropdownItem("繁→简", selected = false, onClick = { expanded = false; onTraditionalToSimplified() })
+            CouixDropdownDivider()
+            CouixDropdownItem("简→日", selected = false, onClick = { expanded = false; onSimplifiedToJapanese() })
         }
     }
+}
+
+private fun editorRemoveParentheticalAnnotations(value: TextFieldValue): TextFieldValue {
+    val text = value.text.replace(Regex("[（(][^()（）]*[)）]"), "")
+    return value.copy(
+        text = text,
+        selection = TextRange(value.selection.start.coerceAtMost(text.length)),
+    )
+}
+
+private fun editorRemoveEmptyLines(value: TextFieldValue): TextFieldValue {
+    val text = value.text.lineSequence()
+        .filter { editorTimeTag.replace(it, "").trim().isNotEmpty() }
+        .joinToString("\n")
+    return value.copy(
+        text = text,
+        selection = TextRange(value.selection.start.coerceAtMost(text.length)),
+    )
+}
+
+private fun editorConvertFullWidthSpaces(value: TextFieldValue): TextFieldValue {
+    val text = value.text.replace('\u3000', ' ')
+    return value.copy(
+        text = text,
+        selection = TextRange(value.selection.start.coerceAtMost(text.length)),
+    )
+}
+
+private fun editorFindReplace(value: TextFieldValue, find: String, replacement: String): TextFieldValue {
+    val text = value.text.replace(find, replacement)
+    return value.copy(
+        text = text,
+        selection = TextRange(value.selection.start.coerceAtMost(text.length)),
+    )
+}
+
+@Composable
+private fun EditorFindReplaceDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (find: String, replacement: String) -> Unit,
+) {
+    var find by remember { mutableStateOf("") }
+    var replacement by remember { mutableStateOf("") }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+                .navigationBarsPadding(),
+            contentAlignment = Alignment.BottomCenter,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(MiuixTheme.colorScheme.surfaceContainer),
+            ) {
+                BasicText(
+                    text = "查找替换",
+                    style = MiuixTheme.textStyles.body1.copy(
+                        color = MiuixTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 18.sp,
+                        textAlign = TextAlign.Center,
+                    ),
+                    modifier = Modifier.fillMaxWidth().padding(top = 22.dp, start = 24.dp, end = 24.dp),
+                )
+                BasicText(
+                    text = "查找串",
+                    style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.onSurfaceVariantSummary),
+                    modifier = Modifier.padding(start = 24.dp, top = 18.dp, end = 24.dp),
+                )
+                BasicTextField(
+                    value = find,
+                    onValueChange = { find = it },
+                    textStyle = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurface, fontSize = 17.sp),
+                    singleLine = true,
+                    cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 24.dp, top = 6.dp, end = 24.dp)
+                        .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                )
+                BasicText(
+                    text = "替换串（可为空）",
+                    style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.onSurfaceVariantSummary),
+                    modifier = Modifier.padding(start = 24.dp, top = 14.dp, end = 24.dp),
+                )
+                BasicTextField(
+                    value = replacement,
+                    onValueChange = { replacement = it },
+                    textStyle = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurface, fontSize = 17.sp),
+                    singleLine = true,
+                    cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 24.dp, top = 6.dp, end = 24.dp)
+                        .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(10.dp))
+                        .padding(12.dp),
+                )
+                Spacer(modifier = Modifier.height(32.dp))
+                Row(modifier = Modifier.fillMaxWidth().height(60.dp)) {
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxSize().clickable { onDismiss() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        BasicText(
+                            text = "取消",
+                            style = MiuixTheme.textStyles.body2.copy(
+                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                fontSize = 17.sp,
+                            ),
+                        )
+                    }
+                    Box(
+                        modifier = Modifier.width(1.dp).height(20.dp).align(Alignment.CenterVertically).background(MiuixTheme.colorScheme.outline),
+                    )
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxSize().clickable { onConfirm(find, replacement) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        BasicText(
+                            text = "确认",
+                            style = MiuixTheme.textStyles.body2.copy(
+                                color = MiuixTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 17.sp,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun editorIcuConvert(value: TextFieldValue, direction: String): TextFieldValue {
+    val converted = runCatching {
+        Transliterator.getInstance(direction).transliterate(value.text)
+    }.getOrDefault(value.text)
+    return value.copy(text = converted)
+}
+
+private fun editorSimplifiedToJapanese(context: android.content.Context, value: TextFieldValue): TextFieldValue {
+    val table = runCatching {
+        val result = LinkedHashMap<Char, Char>()
+        context.assets.open("simplified_to_japanese_common.tsv").bufferedReader(Charsets.UTF_8).useLines { lines ->
+            lines.forEach { line ->
+                val fields = line.split('\t')
+                if (fields.size == 2 && fields[0].length == 1 && fields[1].length == 1) {
+                    result.putIfAbsent(fields[0][0], fields[1][0])
+                }
+            }
+        }
+        result
+    }.getOrDefault(emptyMap())
+    val exceptions = listOf("叶い", "叶う", "叶え")
+    val converted = buildString(value.text.length) {
+        var index = 0
+        while (index < value.text.length) {
+            val exception = exceptions.firstOrNull { value.text.startsWith(it, index) }
+            if (exception != null) {
+                append(exception)
+                index += exception.length
+            } else {
+                append(table[value.text[index]] ?: value.text[index])
+                index++
+            }
+        }
+    }
+    return value.copy(text = converted)
 }
 
 private data class EditorLineRange(val start: Int, val endExclusive: Int)

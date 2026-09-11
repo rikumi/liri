@@ -58,11 +58,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -110,6 +112,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.HapticFeedbackConstants
@@ -240,6 +243,7 @@ private const val COUIX_CATEGORY_CHEVRON_ALPHA = 0.6f
 
 // 分类入口行右侧副标题与标题/箭头之间的间隔。
 private val COUIX_CATEGORY_SUBTITLE_GAP = 12.dp
+private const val COUIX_PUNCTUATION_FONT_FEATURES = "kern,halt"
 
 // 分类入口行标题左边缘相对卡片左缘的距离: 带图标 item 的分割线从此处起，避开图标。
 internal val COUIX_CATEGORY_TEXT_START = COUIX_ROW_HPADDING + COUIX_CATEGORY_ICON + COUIX_CATEGORY_ICON_GAP
@@ -302,7 +306,7 @@ internal fun CouixPreferenceText(
                     alignment = LineHeightStyle.Alignment.Center,
                     trim = LineHeightStyle.Trim.None,
                 ),
-                fontFeatureSettings = if (compressPunctuation) "kern" else null,
+                fontFeatureSettings = if (compressPunctuation) COUIX_PUNCTUATION_FONT_FEATURES else null,
             )
             val lyricSubtitleStyle = lyricLineStyle.copy(color = subtitleColor)
             AnimatedContent(
@@ -354,14 +358,14 @@ internal fun CouixPreferenceText(
         } else {
             BasicText(
                 text = title,
-                style = MiuixTheme.textStyles.body1.copy(color = titleColor, fontFeatureSettings = if (compressPunctuation) "kern" else null),
+                style = MiuixTheme.textStyles.body1.copy(color = titleColor, fontFeatureSettings = if (compressPunctuation) COUIX_PUNCTUATION_FONT_FEATURES else null),
                 modifier = Modifier.heightIn(min = 24.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             BasicText(
                 text = subtitle,
-                style = MiuixTheme.textStyles.body2.copy(color = subtitleColor, fontFeatureSettings = if (compressPunctuation) "kern" else null),
+                style = MiuixTheme.textStyles.body2.copy(color = subtitleColor, fontFeatureSettings = if (compressPunctuation) COUIX_PUNCTUATION_FONT_FEATURES else null),
                 modifier = Modifier.heightIn(min = 16.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1422,13 +1426,14 @@ internal fun CouixDropdownDivider() {
 internal fun CouixDropdownPopup(
     expanded: Boolean,
     anchorHeightPx: Int,
+    extraOffsetYPx: Int = 0,
     onDismissRequest: () -> Unit,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     if (!expanded) return
     Popup(
-        alignment = Alignment.BottomEnd,
-        offset = IntOffset(0, -anchorHeightPx),
+        alignment = Alignment.BottomStart,
+        offset = IntOffset(0, -anchorHeightPx - extraOffsetYPx),
         onDismissRequest = onDismissRequest,
         properties = PopupProperties(focusable = true),
     ) {
@@ -1817,7 +1822,7 @@ fun CouixActionMenu(
 
     if (pendingConfirm != null) {
         CouixConfirmDialog(
-            title = pendingConfirm!!.confirmTitle ?: "",
+            title = pendingConfirm!!.confirmTitle ?: "提示",
             text = pendingConfirm!!.confirmText ?: "",
             onConfirm = {
                 val action = pendingConfirm!!.onClick
@@ -1829,70 +1834,103 @@ fun CouixActionMenu(
     }
 }
 
-// 极简单确认弹窗(自绘, 用 androidx.compose.ui.window.Dialog 提供遮罩与居中)。
-// 仅用于"软重启"等较重、需二次确认的动作。
 @Composable
 fun CouixConfirmDialog(
-    title: String,
+    title: String = "提示",
     text: String,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
-    confirmLabel: String = "确定",
+    confirmLabel: String = "确认",
     dismissLabel: String = "取消",
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            cornerRadius = COUIX_CARD_CORNER,
-            colors = CardDefaults.defaultColors(),
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
             modifier = Modifier
-                .fillMaxWidth(0.84f)
-                .padding(horizontal = 8.dp),
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+                .navigationBarsPadding(),
+            contentAlignment = Alignment.BottomCenter,
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                BasicText(
-                    text = title,
-                    style = MiuixTheme.textStyles.body1.copy(
-                        color = MiuixTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Medium,
-                    ),
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                BasicText(
-                    text = text,
-                    style = MiuixTheme.textStyles.body2.copy(
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                    ),
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 160.dp)
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(MiuixTheme.colorScheme.surfaceContainer),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 32.dp)
+                        .align(Alignment.TopCenter),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .clickable { onDismiss() }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                    ) {
-                        BasicText(
-                            text = dismissLabel,
-                            style = MiuixTheme.textStyles.body2.copy(
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                            ),
+                    BasicText(
+                        text = title,
+                        style = MiuixTheme.textStyles.body1.copy(
+                            color = MiuixTheme.colorScheme.onSurface,
+                            fontWeight = FontWeight.Medium,
+                            fontSize = 18.sp,
+                            textAlign = TextAlign.Center,
+                        ),
+                        modifier = Modifier.fillMaxWidth().padding(top = 22.dp, start = 24.dp, end = 24.dp, bottom = 4.dp),
+                    )
+                    BasicText(
+                        text = text,
+                        style = MiuixTheme.textStyles.body2.copy(
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            fontSize = 16.sp,
+                            textAlign = TextAlign.Center,
+                        ),
+                        modifier = Modifier.fillMaxWidth().padding(start = 24.dp, top = 18.dp, end = 24.dp, bottom = 8.dp),
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp)
+                        .align(Alignment.BottomCenter),
+                ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable { onDismiss() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            BasicText(
+                                text = dismissLabel,
+                                style = MiuixTheme.textStyles.body2.copy(
+                                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                                    fontSize = 17.sp,
+                                ),
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .width(1.dp)
+                                .height(20.dp)
+                                .align(Alignment.CenterVertically)
+                                .background(MiuixTheme.colorScheme.outline),
                         )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clickable { onConfirm() }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                    ) {
-                        BasicText(
-                            text = confirmLabel,
-                            style = MiuixTheme.textStyles.body2.copy(
-                                color = MiuixTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium,
-                            ),
-                        )
-                    }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clickable { onConfirm() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            BasicText(
+                                text = confirmLabel,
+                                style = MiuixTheme.textStyles.body2.copy(
+                                    color = MiuixTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium,
+                                    fontSize = 17.sp,
+                                ),
+                            )
+                        }
                 }
             }
         }
