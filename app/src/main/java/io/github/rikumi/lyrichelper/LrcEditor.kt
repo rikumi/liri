@@ -78,6 +78,8 @@ import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Add
+import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
+import top.yukonga.miuix.kmp.icon.extended.ChevronForward
 import top.yukonga.miuix.kmp.icon.extended.Folder
 import top.yukonga.miuix.kmp.icon.extended.Pause
 import top.yukonga.miuix.kmp.icon.extended.Play
@@ -88,16 +90,22 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 private val editorTimeTag = Regex("\\[\\d{1,3}:\\d{1,2}(?:[.:]\\d{1,3})?\\]")
 private val editorLeadingTimeTags = Regex("^(?:\\[\\d{1,3}:\\d{1,2}(?:[.:]\\d{1,3})?\\])+")
 private val editorOffsetTag = Regex("^\\[offset\\s*:\\s*(-?\\d+)\\]", RegexOption.IGNORE_CASE)
-private val editorMonospace = FontFamily(Font(R.font.maple_mono_regular))
+internal val mapleMono = FontFamily(Font(R.font.maple_mono_regular))
 
 @OptIn(ExperimentalTextApi::class)
-private val editorMaterialSymbols = FontFamily(
+internal val materialSymbolsRounded = FontFamily(
     Font(
-        R.font.material_symbols_outlined,
+        R.font.material_symbols_rounded,
         FontWeight.Normal,
         variationSettings = FontVariation.Settings(FontVariation.weight(200)),
     ),
 )
+internal const val MATERIAL_ICON_PAUSE = "\uE034"
+internal const val MATERIAL_ICON_PLAY = "\uE037"
+internal const val MATERIAL_ICON_SKIP_NEXT = "\uE044"
+internal const val MATERIAL_ICON_SKIP_PREVIOUS = "\uE045"
+internal const val MATERIAL_ICON_FORWARD_10 = "\uE056"
+internal const val MATERIAL_ICON_REPLAY_10 = "\uE059"
 private data class EditorTrack(val title: String, val artist: String)
 
 @Composable
@@ -248,26 +256,6 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
                     }
                 },
                 )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(1.dp)
-                        .padding(horizontal = 16.dp)
-                        .background(
-                            if (androidx.compose.foundation.isSystemInDarkTheme()) {
-                                Color.White.copy(alpha = 0.10f)
-                            } else {
-                                Color.Black.copy(alpha = 0.10f)
-                            },
-                        ),
-                )
-            }
             val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
             val barContentColor = if (darkTheme) Color.White else Color(0xFF212121)
             val trackColor = barContentColor.copy(alpha = 0.16f)
@@ -276,33 +264,34 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
             Column(modifier = Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surface)) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    EditorTransportButton("replay_10", "向后 10 秒", Modifier.weight(1f), 30.sp) {
+                    EditorTransportButton(MATERIAL_ICON_REPLAY_10, "向后 10 秒", Modifier.size(48.dp), 28.sp) {
                         context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SEEK_BACKWARD))
                     }
-                    EditorTransportButton("skip_previous", "上一曲", Modifier.weight(1f).offset(y = (-4).dp), 36.sp) {
+                    EditorTransportIconButton(MiuixIcons.ChevronBackward, "上一曲", Modifier.size(48.dp).offset(y = (-4).dp), 22.dp) {
                         requestSaveThen({ context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SKIP_PREVIOUS)) }, discardWhenDismissed = true)
                     }
-                    EditorTransportButton(if (playing) "pause" else "play_arrow", if (playing) "暂停" else "播放", Modifier.weight(1f).offset(y = (-4).dp), 36.sp) {
+                    EditorTransportIconButton(if (playing) MiuixIcons.Pause else MiuixIcons.Play, if (playing) "暂停" else "播放", Modifier.size(48.dp).offset(y = (-4).dp), 22.dp) {
                         context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_TOGGLE_PLAYBACK))
                     }
-                    EditorTransportButton("skip_next", "下一曲", Modifier.weight(1f).offset(y = (-4).dp), 36.sp) {
+                    EditorTransportIconButton(MiuixIcons.ChevronForward, "下一曲", Modifier.size(48.dp).offset(y = (-4).dp), 22.dp) {
                         requestSaveThen({ context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SKIP_NEXT)) }, discardWhenDismissed = true)
                     }
-                    EditorTransportButton("forward_10", "向前 10 秒", Modifier.weight(1f), 30.sp) {
+                    EditorTransportButton(MATERIAL_ICON_FORWARD_10, "向前 10 秒", Modifier.size(48.dp), 28.sp) {
                         context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SEEK_FORWARD))
                     }
                 }
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp)) {
                     BasicText(
                         editorTimeLabel(positionMs),
-                        style = MiuixTheme.textStyles.body2.copy(fontFamily = editorMonospace, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
+                        style = MiuixTheme.textStyles.body2.copy(fontFamily = mapleMono, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
                         modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
                     )
                     BasicText(
                         editorTimeLabel(durationMs),
-                        style = MiuixTheme.textStyles.body2.copy(fontFamily = editorMonospace, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
+                        style = MiuixTheme.textStyles.body2.copy(fontFamily = mapleMono, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
                         modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
                     )
                     Canvas(Modifier.fillMaxWidth().height(1.dp).align(Alignment.BottomCenter)) {
@@ -383,7 +372,7 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
                     .verticalScroll(editorScrollState)
                     .padding(16.dp)
                     .onGloballyPositioned { editorTextTopPx = it.positionInParent().y },
-                textStyle = MiuixTheme.textStyles.body2.copy(fontFamily = editorMonospace, fontFeatureSettings = "kern", letterSpacing = 0.sp, color = MiuixTheme.colorScheme.onSurface, lineHeight = 20.sp),
+                textStyle = MiuixTheme.textStyles.body2.copy(fontFamily = mapleMono, fontFeatureSettings = "kern", letterSpacing = 0.sp, color = MiuixTheme.colorScheme.onSurface, lineHeight = 20.sp),
                 visualTransformation = remember(accent, currentLineStart) { EditorLrcVisualTransformation(accent, currentLineStart) },
                 cursorBrush = SolidColor(accent),
                 onTextLayout = { editorTextLayout = it },
@@ -442,17 +431,34 @@ private fun EditorAction(description: String, icon: @Composable () -> Unit, hide
 
 @Composable
 private fun EditorTransportButton(icon: String, description: String, modifier: Modifier = Modifier, iconSize: androidx.compose.ui.unit.TextUnit = 30.sp, onClick: () -> Unit) {
-    top.yukonga.miuix.kmp.basic.IconButton(onClick = onClick, modifier = modifier.height(56.dp)) {
+    top.yukonga.miuix.kmp.basic.IconButton(onClick = onClick, modifier = modifier) {
         BasicText(
             text = icon,
             style = MiuixTheme.textStyles.body1.copy(
-                fontFamily = editorMaterialSymbols,
+                fontFamily = materialSymbolsRounded,
                 fontSize = iconSize,
                 color = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121),
-                fontFeatureSettings = "liga",
                 textAlign = TextAlign.Center,
             ),
             modifier = Modifier.size(40.dp),
+        )
+    }
+}
+
+@Composable
+private fun EditorTransportIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    modifier: Modifier = Modifier,
+    iconSize: androidx.compose.ui.unit.Dp = 34.dp,
+    onClick: () -> Unit,
+) {
+    top.yukonga.miuix.kmp.basic.IconButton(onClick = onClick, modifier = modifier) {
+        top.yukonga.miuix.kmp.basic.Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121),
+            modifier = Modifier.size(iconSize),
         )
     }
 }

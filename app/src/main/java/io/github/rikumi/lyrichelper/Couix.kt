@@ -29,6 +29,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -51,6 +52,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
@@ -233,7 +235,7 @@ private val COUIX_LARGE_TITLE_START = 24.dp
 
 // 分类入口行: 图标尺寸及图标与标题的间距（无底色容器，图标直接绘制）。
 private val COUIX_CATEGORY_ICON = 22.dp
-private val COUIX_CATEGORY_ICON_GAP = 14.dp
+private val COUIX_CATEGORY_ICON_GAP = 10.dp
 
 // 分类入口行右侧"进入子菜单"箭头尺寸: 明显小于左侧分类图标, 只作指示不抢视觉。
 private val COUIX_CATEGORY_CHEVRON = 16.dp
@@ -278,6 +280,7 @@ internal fun CouixPreferenceText(
     contentHorizontalPadding: Dp = 0.dp,
     animateProgress: Boolean = true,
     compressPunctuation: Boolean = false,
+    textAlign: androidx.compose.ui.text.style.TextAlign = androidx.compose.ui.text.style.TextAlign.Start,
 ) {
     val progressColor = MiuixTheme.colorScheme.primary.copy(alpha = 0.16f)
     val targetProgress = progress?.coerceIn(0f, 1f) ?: 0f
@@ -306,12 +309,26 @@ internal fun CouixPreferenceText(
                     alignment = LineHeightStyle.Alignment.Center,
                     trim = LineHeightStyle.Trim.None,
                 ),
+                textAlign = textAlign,
                 fontFeatureSettings = if (compressPunctuation) COUIX_PUNCTUATION_FONT_FEATURES else null,
             )
             val lyricSubtitleStyle = lyricLineStyle.copy(color = subtitleColor)
             AnimatedContent(
                 targetState = title to subtitle,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .requiredHeight(52.dp)
+                    .drawBehind {
+                        if (progress != null) {
+                            drawRect(
+                                color = progressColor,
+                                size = Size(
+                                    width = size.width * animatedProgress,
+                                    height = 26.dp.toPx(),
+                                ),
+                            )
+                        }
+                    },
                 contentAlignment = Alignment.BottomCenter,
                 transitionSpec = {
                     (slideInVertically(tween(260)) { height -> height } + fadeIn(tween(260)))
@@ -319,38 +336,36 @@ internal fun CouixPreferenceText(
                 },
                 label = "couix_lyric_lines",
             ) { (current, next) ->
-                Column(modifier = Modifier.fillMaxWidth().height(52.dp), verticalArrangement = Arrangement.Bottom) {
+                Column(modifier = Modifier.fillMaxWidth().requiredHeight(52.dp), verticalArrangement = Arrangement.Bottom) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(26.dp)
-                            .then(
-                                if (progress != null) {
-                                    Modifier.drawBehind {
-                                        drawRect(
-                                            color = progressColor,
-                                            size = size.copy(width = size.width * animatedProgress),
-                                        )
-                                    }
-                                } else Modifier,
-                            ),
+                            .requiredHeight(26.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         BasicText(
                             text = current,
                             style = lyricLineStyle,
-                            modifier = Modifier.fillMaxWidth().height(26.dp).padding(horizontal = contentHorizontalPadding),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .requiredHeight(26.dp)
+                                .padding(horizontal = contentHorizontalPadding)
+                                .basicMarquee(iterations = Int.MAX_VALUE),
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            overflow = TextOverflow.Clip,
                         )
                     }
-                    Box(modifier = Modifier.fillMaxWidth().height(26.dp)) {
+                    Box(modifier = Modifier.fillMaxWidth().requiredHeight(26.dp)) {
                         BasicText(
                             text = next,
                             style = lyricSubtitleStyle,
-                            modifier = Modifier.fillMaxWidth().height(26.dp).padding(horizontal = contentHorizontalPadding),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .requiredHeight(26.dp)
+                                .padding(horizontal = contentHorizontalPadding)
+                                .basicMarquee(iterations = Int.MAX_VALUE),
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            overflow = TextOverflow.Clip,
                         )
                     }
                 }
@@ -358,15 +373,15 @@ internal fun CouixPreferenceText(
         } else {
             BasicText(
                 text = title,
-                style = MiuixTheme.textStyles.body1.copy(color = titleColor, fontFeatureSettings = if (compressPunctuation) COUIX_PUNCTUATION_FONT_FEATURES else null),
-                modifier = Modifier.heightIn(min = 24.dp),
+                style = MiuixTheme.textStyles.body1.copy(color = titleColor, textAlign = textAlign, fontFeatureSettings = if (compressPunctuation) COUIX_PUNCTUATION_FONT_FEATURES else null),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 24.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             BasicText(
                 text = subtitle,
-                style = MiuixTheme.textStyles.body2.copy(color = subtitleColor, fontFeatureSettings = if (compressPunctuation) COUIX_PUNCTUATION_FONT_FEATURES else null),
-                modifier = Modifier.heightIn(min = 16.dp),
+                style = MiuixTheme.textStyles.body2.copy(color = subtitleColor, textAlign = textAlign, fontFeatureSettings = if (compressPunctuation) COUIX_PUNCTUATION_FONT_FEATURES else null),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 16.dp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1055,6 +1070,10 @@ internal fun CouixActionPairRow(
     onLeftClick: () -> Unit,
     rightTitle: String,
     onRightClick: () -> Unit,
+    leftIcon: ImageVector? = null,
+    rightIcon: ImageVector? = null,
+    leftShowChevron: Boolean = true,
+    rightShowChevron: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -1067,6 +1086,8 @@ internal fun CouixActionPairRow(
     ) {
         CouixActionCell(
             title = leftTitle,
+            icon = leftIcon,
+            showChevron = leftShowChevron,
             onClick = onLeftClick,
             modifier = Modifier.weight(1f),
         )
@@ -1079,6 +1100,8 @@ internal fun CouixActionPairRow(
         )
         CouixActionCell(
             title = rightTitle,
+            icon = rightIcon,
+            showChevron = rightShowChevron,
             onClick = onRightClick,
             modifier = Modifier.weight(1f),
         )
@@ -1088,6 +1111,8 @@ internal fun CouixActionPairRow(
 @Composable
 private fun CouixActionCell(
     title: String,
+    icon: ImageVector?,
+    showChevron: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1103,6 +1128,15 @@ private fun CouixActionCell(
             modifier = Modifier.fillMaxWidth().height(22.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MiuixTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(COUIX_CATEGORY_ICON),
+                )
+                Spacer(Modifier.width(COUIX_CATEGORY_ICON_GAP))
+            }
             BasicText(
                 text = title,
                 style = MiuixTheme.textStyles.body1.copy(
@@ -1110,13 +1144,15 @@ private fun CouixActionCell(
                 ),
                 modifier = Modifier.weight(1f),
             )
-            // 与分类入口行同一枚前进箭头(同尺寸、同压低后的不透明度)。
-            Icon(
-                imageVector = MiuixIcons.ChevronForward,
-                contentDescription = null,
-                tint = summary.copy(alpha = summary.alpha * COUIX_CATEGORY_CHEVRON_ALPHA),
-                modifier = Modifier.size(COUIX_CATEGORY_CHEVRON),
-            )
+            if (showChevron) {
+                // 与分类入口行同一枚前进箭头(同尺寸、同压低后的不透明度)。
+                Icon(
+                    imageVector = MiuixIcons.ChevronForward,
+                    contentDescription = null,
+                    tint = summary.copy(alpha = summary.alpha * COUIX_CATEGORY_CHEVRON_ALPHA),
+                    modifier = Modifier.size(COUIX_CATEGORY_CHEVRON),
+                )
+            }
         }
     }
 }
@@ -1176,6 +1212,7 @@ fun CouixSwitchPreference(
     subtitle: String? = null,
     onTitleClick: (() -> Unit)? = null,
     leftTrailingContent: @Composable RowScope.() -> Unit = {},
+    leadingIcon: ImageVector? = null,
     showDivider: Boolean = false,
 ) {
     val density = LocalDensity.current
@@ -1224,6 +1261,15 @@ fun CouixSwitchPreference(
                         ),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    if (leadingIcon != null) {
+                        Icon(
+                            imageVector = leadingIcon,
+                            contentDescription = null,
+                            tint = MiuixTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(COUIX_CATEGORY_ICON),
+                        )
+                        Spacer(Modifier.width(COUIX_CATEGORY_ICON_GAP))
+                    }
                     Column(
                         modifier = Modifier.weight(1f),
                         verticalArrangement = Arrangement.Bottom,

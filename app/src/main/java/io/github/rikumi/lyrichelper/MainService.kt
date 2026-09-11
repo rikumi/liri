@@ -219,7 +219,7 @@ class MainService : NotificationListenerService() {
                 observedController?.transportControls?.skipToNext()
             }
             ACTION_SEARCH_LYRICS -> {
-                if (searchCurrentSongLyrics()) showSearchToast("正在搜索歌词…")
+                searchCurrentSongLyrics()
             }
             ACTION_RELOAD_LOCAL_LYRICS -> {
                 if (observedTitle.isNotBlank() && observedArtist.isNotBlank()) {
@@ -280,6 +280,7 @@ class MainService : NotificationListenerService() {
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
+        sbn?.let(::cacheNotificationIcon)
         handler.postDelayed({ update() }, 80L)
     }
 
@@ -307,6 +308,7 @@ class MainService : NotificationListenerService() {
             extras.getString("android.template") == "android.app.Notification\$MediaStyle"
                 || extras.get("android.mediaSession") is MediaSession.Token
         }
+        filtered.forEach(::cacheNotificationIcon)
         val prioritizedNotifications = filtered.sortedByDescending { notification ->
             notificationPlaybackState(notification) == STATE_PLAYING
         }
@@ -324,6 +326,23 @@ class MainService : NotificationListenerService() {
             clearPlayerState()
         } else {
             reloadLyricsAfterSongOffsetChange()
+        }
+    }
+
+    private fun cacheNotificationIcon(sbn: StatusBarNotification) {
+        runCatching {
+            val drawable = sbn.notification.smallIcon?.loadDrawable(this) ?: return@runCatching
+            val iconSize = maxOf(drawable.intrinsicWidth, drawable.intrinsicHeight, 48)
+            val bitmap = Bitmap.createBitmap(iconSize, iconSize, Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+            drawable.setBounds(0, 0, iconSize, iconSize)
+            drawable.draw(canvas)
+            val file = File(filesDir, "notification_icon_${sbn.packageName.hashCode().toUInt().toString(16)}.png")
+            FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            settingsPrefs().edit()
+                .putString("playback_notification_icon", file.absolutePath)
+                .putString("playback_notification_package", sbn.packageName)
+                .apply()
         }
     }
 
@@ -435,6 +454,11 @@ class MainService : NotificationListenerService() {
         return hasMusicMetadata || artistAndAlbum.size > 1
     }
 
+    private fun isQqMusicPackage(packageName: String): Boolean = packageName.lowercase() in setOf(
+        "com.tencent.qqmusic",
+        "com.meizu.media.music",
+    )
+
     private fun clearPlayerState() {
         if (currentMusic.isEmpty() && settingsPrefs().getString("now_title", "").isNullOrEmpty()) return
         currentMusic = ""
@@ -468,6 +492,22 @@ class MainService : NotificationListenerService() {
         currentMusicLyrics.put(Int.MAX_VALUE, message)
         settingsPrefs().edit().putString("now_lyric_current", "").putString("now_lyric_next", message).apply()
         lyricWindow?.hideLyric()
+    }
+
+    private fun showNoLyrics(title: String, artist: String, message: String) {
+        val prefs = settingsPrefs()
+        if (prefs.getBoolean("save_lyrics_automatically", true)
+            || prefs.getBoolean("lyric_selection_manual", false)
+            || prefs.getBoolean("lyric_manual_search", false)
+        ) {
+            saveLrc(title, artist, "")
+        }
+        prefs.edit()
+            .remove("current_lyric_source")
+            .remove("current_lyric_source_key")
+            .putString("current_lyric_loaded_key", currentMusic)
+            .apply()
+        showMessage(message)
     }
 
     private fun cloudMusicRequest(
@@ -535,6 +575,7 @@ class MainService : NotificationListenerService() {
             requestedResultId = -1
             val prefs = settingsPrefs()
             prefs.edit().remove("selected_lyric_id")
+                .remove("lyric_search_source_key")
                 .putBoolean("lyric_selection_manual", false)
                 .putBoolean("lyric_manual_search", forceSearch)
                 .putBoolean("lyric_force_search", false)
@@ -572,7 +613,15 @@ class MainService : NotificationListenerService() {
             if (lyricSearchInFlightKey == searchKey) return
             val requestToken = ++lyricSearchRequestToken
             lyricSearchInFlightKey = searchKey
-            val searchSource = if (forceSearch) settingsPrefs().getString("lyric_search_source", "netease") else "netease"
+            val searchSource = if (forceSearch) {
+                settingsPrefs().getString("lyric_search_source", defaultLyricSearchSource()) ?: defaultLyricSearchSource()
+            } else {
+                defaultLyricSearchSource()
+            }
+            settingsPrefs().edit()
+                .putString("lyric_search_source", searchSource)
+                .putString("lyric_search_source_key", currentMusic)
+                .apply()
             if (searchSource == "qq") {
                 searchQqLyrics(searchQuery, musicBeforeRequest, requestToken, title, artist, album, preserveLocalLyric)
                 return
@@ -751,6 +800,8 @@ class MainService : NotificationListenerService() {
         queue.add(request)
     }
 
+    private fun defaultLyricSearchSource(): String = if (isQqMusicPackage(observedPackageName)) "qq" else "netease"
+
     private fun scheduleLyricBoundary(title: String, artist: String, album: String, nextTime: Int, position: Long) {
         if (!isPlaying) return
         lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
@@ -805,7 +856,7 @@ class MainService : NotificationListenerService() {
                 }
                 parseLyrics(lyric)
                 refreshCurrentLyricDisplay()
-            } else showMessage("歌曲无歌词")
+            } else showNoLyrics(title, artist, "歌曲无歌词")
         }
     }
 
@@ -1060,6 +1111,8 @@ class MainService : NotificationListenerService() {
     private fun isSilentNotification(sbn: StatusBarNotification): Boolean {
         val notification = sbn.notification
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val extras = notification.extras
+            if (extras.getBoolean("android.isSilent", false) || extras.getBoolean("android.silent", false)) return true
             getSystemService(NotificationManager::class.java)
                 ?.getNotificationChannel(notification.channelId)
                 ?.let { return it.importance < NotificationManager.IMPORTANCE_DEFAULT }
