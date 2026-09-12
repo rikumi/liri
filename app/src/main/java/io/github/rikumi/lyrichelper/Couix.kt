@@ -9,6 +9,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
@@ -29,7 +30,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -66,6 +66,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.runtime.Composable
@@ -74,6 +75,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,6 +109,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 
@@ -125,6 +128,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.requiredWidth
 import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.roundToInt
@@ -343,16 +347,12 @@ internal fun CouixPreferenceText(
                             .requiredHeight(26.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
-                        BasicText(
+                        CouixSinglePassMarqueeText(
                             text = current,
                             style = lyricLineStyle,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .requiredHeight(26.dp)
-                                .padding(horizontal = contentHorizontalPadding)
-                                .basicMarquee(iterations = Int.MAX_VALUE),
-                            maxLines = 1,
-                            overflow = TextOverflow.Clip,
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalPadding = contentHorizontalPadding,
+                            textAlign = textAlign,
                         )
                     }
                     Box(modifier = Modifier.fillMaxWidth().requiredHeight(26.dp)) {
@@ -362,10 +362,9 @@ internal fun CouixPreferenceText(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .requiredHeight(26.dp)
-                                .padding(horizontal = contentHorizontalPadding)
-                                .basicMarquee(iterations = Int.MAX_VALUE),
+                                .padding(horizontal = contentHorizontalPadding),
                             maxLines = 1,
-                            overflow = TextOverflow.Clip,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
@@ -386,6 +385,65 @@ internal fun CouixPreferenceText(
                 overflow = TextOverflow.Ellipsis,
             )
         }
+    }
+}
+
+/** 与悬浮窗一致：切换后等待 500ms，再按文本长度单次匀速滚动到末端。 */
+@Composable
+private fun CouixSinglePassMarqueeText(
+    text: String,
+    style: TextStyle,
+    modifier: Modifier = Modifier,
+    horizontalPadding: Dp = 0.dp,
+    textAlign: TextAlign = TextAlign.Start,
+) {
+    val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
+    val textWidthPx = remember(text, style) {
+        textMeasurer.measure(
+            text = androidx.compose.ui.text.AnnotatedString(text),
+            style = style,
+            maxLines = 1,
+            softWrap = false,
+        ).size.width
+    }
+    var containerWidthPx by remember { mutableIntStateOf(0) }
+    val offset = remember { Animatable(0f) }
+    LaunchedEffect(text, textWidthPx, containerWidthPx, horizontalPadding, textAlign) {
+        offset.stop()
+        val visibleWidthPx = (containerWidthPx - with(density) { horizontalPadding.toPx() * 2 }).coerceAtLeast(0f)
+        val overflowTarget = (visibleWidthPx - textWidthPx).coerceAtMost(0f)
+        val start = if (overflowTarget == 0f && textAlign == TextAlign.Center) {
+            (visibleWidthPx - textWidthPx).coerceAtLeast(0f) / 2f
+        } else 0f
+        offset.snapTo(start)
+        if (overflowTarget < 0f) {
+            delay(500L)
+            val asciiRatio = if (text.isEmpty()) 0f else text.count { it.code in 32..126 }.toFloat() / text.length
+            val speedPxPerMs = 0.1f * (1f + asciiRatio)
+            val duration = (kotlin.math.abs(overflowTarget - start) / speedPxPerMs).toLong().coerceAtLeast(1L)
+            offset.animateTo(overflowTarget, animationSpec = tween(durationMillis = duration.toInt(), easing = LinearEasing))
+        }
+    }
+    Box(
+        modifier = modifier
+            .requiredHeight(26.dp)
+            .clipToBounds()
+            .onSizeChanged { containerWidthPx = it.width },
+    ) {
+        BasicText(
+            text = text,
+            style = style,
+            modifier = Modifier
+                .requiredWidth(
+                    with(density) { textWidthPx.toDp() } + horizontalPadding * 2,
+                )
+                .padding(horizontal = horizontalPadding)
+                .offset { IntOffset(offset.value.roundToInt(), 0) },
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Clip,
+        )
     }
 }
 

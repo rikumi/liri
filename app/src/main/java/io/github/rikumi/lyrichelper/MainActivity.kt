@@ -354,12 +354,12 @@ private fun NowPlayingCard(player: PlayerSnapshot, settingsExpanded: Boolean, on
         }
     }
     val playbackIcon = notificationIcon ?: playbackAppIcon
-    var liveProgress by remember(player.title, player.currentLyric, player.lyricStartElapsed) {
+    var liveProgress by remember(player.title, player.currentLyric, player.lyricStartElapsed, player.playing) {
         mutableFloatStateOf(player.lyricProgress)
     }
-    LaunchedEffect(player.title, player.currentLyric, player.lyricStartElapsed, player.lyricDurationMs) {
+    LaunchedEffect(player.title, player.currentLyric, player.lyricStartElapsed, player.lyricDurationMs, player.playing) {
         while (true) {
-            liveProgress = if (player.lyricDurationMs > 0L && player.lyricStartElapsed > 0L) {
+            liveProgress = if (player.playing && player.lyricDurationMs > 0L && player.lyricStartElapsed > 0L) {
                 ((SystemClock.elapsedRealtime() - player.lyricStartElapsed).toFloat() / player.lyricDurationMs).coerceIn(0f, 1f)
             } else player.lyricProgress
             delay(16)
