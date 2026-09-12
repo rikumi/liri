@@ -33,6 +33,7 @@ import android.service.notification.StatusBarNotification
 import android.util.Log
 import android.util.SparseArray
 import android.widget.Toast
+import android.widget.ImageView
 import android.app.Notification
 import android.app.NotificationManager
 import androidx.core.util.forEach
@@ -41,6 +42,7 @@ import com.android.volley.RequestQueue
 import com.android.volley.Response
 import com.android.volley.toolbox.JsonObjectRequest
 import com.android.volley.toolbox.StringRequest
+import com.android.volley.toolbox.ImageRequest
 import com.android.volley.toolbox.Volley
 import org.json.JSONArray
 import org.json.JSONObject
@@ -60,6 +62,8 @@ const val ACTION_EDITOR_START = "io.github.rikumi.lyrichelper.action.EDITOR_STAR
 const val ACTION_EDITOR_STOP = "io.github.rikumi.lyrichelper.action.EDITOR_STOP"
 const val ACTION_SKIP_NEXT_TRACK = "io.github.rikumi.lyrichelper.action.SKIP_NEXT_TRACK"
 const val ACTION_SEARCH_LYRICS = "io.github.rikumi.lyrichelper.action.SEARCH_LYRICS"
+const val ACTION_PREVIEW_SEARCH_LYRICS = "io.github.rikumi.lyrichelper.action.PREVIEW_SEARCH_LYRICS"
+const val ACTION_SAVE_SEARCH_ALBUM_ART = "io.github.rikumi.lyrichelper.action.SAVE_SEARCH_ALBUM_ART"
 const val ACTION_RELOAD_LOCAL_LYRICS = "io.github.rikumi.lyrichelper.action.RELOAD_LOCAL_LYRICS"
 
 internal fun defaultLyricSearchQuery(title: String, artist: String): String =
@@ -221,6 +225,12 @@ class MainService : NotificationListenerService() {
             ACTION_SEARCH_LYRICS -> {
                 searchCurrentSongLyrics()
             }
+            ACTION_PREVIEW_SEARCH_LYRICS -> {
+                previewSearchResultLyrics()
+            }
+            ACTION_SAVE_SEARCH_ALBUM_ART -> {
+                saveSearchAlbumArt()
+            }
             ACTION_RELOAD_LOCAL_LYRICS -> {
                 if (observedTitle.isNotBlank() && observedArtist.isNotBlank()) {
                     currentMusic = ""
@@ -254,6 +264,69 @@ class MainService : NotificationListenerService() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    private fun previewSearchResultLyrics() {
+        val prefs = settingsPrefs()
+        val id = prefs.getLong("preview_lyric_id", -1L)
+        val key = prefs.getString("preview_lyric_key", "") ?: ""
+        val source = prefs.getString("preview_lyric_source", "netease") ?: "netease"
+        val title = prefs.getString("preview_lyric_title", "") ?: ""
+        val artist = prefs.getString("preview_lyric_artist", "") ?: ""
+        if (id <= 0 || title.isBlank()) return
+        fun loadPreviewLyrics() {
+            fetchLyrics(id, currentMusic, title, artist, previewOnly = true, sourceOverride = source, keyOverride = key)
+        }
+        if (source == "netease") {
+            cloudMusicRequest("/api/song/detail?ids=[$id]", currentMusic) { response ->
+                val cover = response.optJSONArray("songs")?.optJSONObject(0)?.optJSONObject("album")
+                    ?.optString("picUrl")?.takeIf { it.isNotBlank() }?.replace("http://", "https://")
+                prefs.edit().putString("preview_cover_url", cover ?: "").apply()
+                loadPreviewLyrics()
+            }
+        } else {
+            loadPreviewLyrics()
+        }
+    }
+
+    private fun saveSearchAlbumArt() {
+        val prefs = settingsPrefs()
+        val url = prefs.getString("preview_cover_url", "")?.ifBlank {
+            prefs.getString("preview_album_art_url", "") ?: ""
+        } ?: ""
+        val title = prefs.getString("now_title", "")?.takeIf { it.isNotBlank() } ?: observedTitle
+        val artist = prefs.getString("now_artist", "")?.takeIf { it.isNotBlank() } ?: observedArtist
+        if (title.isBlank()) return
+        if (url.isBlank()) {
+            showSearchToast("未获取到专辑封面")
+            return
+        }
+        val request = ImageRequest(
+            url,
+            { bitmap ->
+                Thread {
+                    runCatching {
+                        val directory = File("/sdcard/Music/Liri/.albumart")
+                        check(directory.exists() || directory.mkdirs())
+                        File(directory, ".nomedia").takeIf { !it.exists() }?.createNewFile()
+                        val file = File(directory, "$title - $artist.png".replace(Regex("[\\\\/:*?\"<>|]"), "_"))
+                        FileOutputStream(file).use { bitmap.compress(Bitmap.CompressFormat.PNG, 90, it) }
+                        prefs.edit()
+                            .putString("now_cover", file.absolutePath)
+                            .putLong("album_art_version", System.currentTimeMillis())
+                            .putBoolean("expand_now_playing", true)
+                            .apply()
+                    }.onFailure { handler.post { showSearchToast("专辑封面保存失败") } }
+                }.start()
+            },
+            0,
+            0,
+            ImageView.ScaleType.CENTER_CROP,
+            Bitmap.Config.ARGB_8888,
+            { showSearchToast("专辑封面下载失败") },
+        )
+        request.setShouldCache(false)
+        queue.add(request)
     }
 
     private fun scheduleEditorPause() {
@@ -653,12 +726,17 @@ class MainService : NotificationListenerService() {
                         }
                     )
                     for (song in songItems.take(8)) {
+                        val albumObject = song.optJSONObject("album")
+                        val coverUrl = (albumObject?.optString("picUrl")?.takeIf { it.isNotBlank() }
+                            ?: song.optString("picUrl").takeIf { it.isNotBlank() }
+                            ?: "").replace("http://", "https://")
                         results.put(JSONObject()
                             .put("id", song.getLong("id"))
                             .put("key", song.getLong("id").toString())
                             .put("title", song.optString("name"))
                             .put("artist", song.optJSONArray("artists")?.optJSONObject(0)?.optString("name", artist) ?: artist)
-                            .put("album", song.optJSONObject("album")?.optString("name", album) ?: album))
+                            .put("album", albumObject?.optString("name", album) ?: album)
+                            .put("cover", coverUrl))
                     }
                     val selectedId = if (preserveLocalLyric) -1L else {
                         val selected = settingsPrefs().getLong("selected_lyric_id", -1L)
@@ -760,12 +838,19 @@ class MainService : NotificationListenerService() {
                     for (index in 0 until minOf(8, songs.length())) {
                         val song = songs.getJSONObject(index)
                         val singer = song.optJSONArray("singer")?.optString(0, artist) ?: artist
+                        val albumObject = song.optJSONObject("album")
+                        val albumName = albumObject?.optString("name")?.takeIf { it.isNotBlank() }
+                            ?: song.optString("album", album)
+                        val albumMid = albumObject?.optString("mid")?.takeIf { it.isNotBlank() }
+                            ?: song.optString("albummid").takeIf { it.isNotBlank() }
+                            ?: song.optString("album_mid").takeIf { it.isNotBlank() }
                         results.put(JSONObject()
                             .put("id", song.optLong("id", index.toLong()))
                             .put("key", song.optString("mid"))
                             .put("title", song.optString("name", title))
                             .put("artist", singer)
-                            .put("album", song.optString("album", album)))
+                            .put("album", albumName)
+                            .put("cover", if (albumMid != null) "https://y.gtimg.cn/music/photo_new/T002R300x300M000$albumMid.jpg" else ""))
                     }
                     val selectedId = if (preserveLocalLyric) -1L else results.getJSONObject(0).getLong("id")
                     val selectedKey = if (preserveLocalLyric) "" else results.getJSONObject(0).getString("key")
@@ -817,11 +902,19 @@ class MainService : NotificationListenerService() {
         handler.postDelayed(task, delay)
     }
 
-    private fun fetchLyrics(id: Long, musicBeforeRequest: String, title: String, artist: String) {
+    private fun fetchLyrics(
+        id: Long,
+        musicBeforeRequest: String,
+        title: String,
+        artist: String,
+        previewOnly: Boolean = false,
+        sourceOverride: String? = null,
+        keyOverride: String? = null,
+    ) {
         requestedResultId = id.toInt()
         val prefs = settingsPrefs()
-        val source = prefs.getString("lyric_search_source", "netease") ?: "netease"
-        val remoteKey = prefs.getString("selected_lyric_key", id.toString()) ?: id.toString()
+        val source = sourceOverride ?: prefs.getString("lyric_search_source", "netease") ?: "netease"
+        val remoteKey = keyOverride ?: prefs.getString("selected_lyric_key", id.toString()) ?: id.toString()
         val local = if (prefs.getBoolean("lyric_selection_manual", false)) null else readLrc(title, artist)
         if (local != null) {
             if (musicBeforeRequest == currentMusic) {
@@ -830,19 +923,27 @@ class MainService : NotificationListenerService() {
                     .putString("current_lyric_source", local)
                     .putString("current_lyric_source_key", currentMusic)
                     .apply()
-                parseLyrics(local)
-                refreshCurrentLyricDisplay()
+                if (previewOnly) {
+                    settingsPrefs().edit().putString("preview_lyric", local).putLong("preview_lyric_version", System.currentTimeMillis()).apply()
+                } else {
+                    parseLyrics(local)
+                    refreshCurrentLyricDisplay()
+                }
             }
             return
         }
         if (source == "qq") {
-            fetchQqLyric(remoteKey, id, musicBeforeRequest, title, artist)
+            fetchQqLyric(remoteKey, id, musicBeforeRequest, title, artist, previewOnly)
             return
         }
         cloudMusicRequest("/api/song/media?id=$id", musicBeforeRequest) { res ->
             if (musicBeforeRequest != currentMusic) return@cloudMusicRequest
             if (res.has("lyric")) {
                 val lyric = res.getString("lyric")
+                if (previewOnly) {
+                    prefs.edit().putString("preview_lyric", lyric).putLong("preview_lyric_version", System.currentTimeMillis()).apply()
+                    return@cloudMusicRequest
+                }
                 activeResultId = id.toInt()
                 prefs.edit()
                     .putString("current_lyric_source", lyric)
@@ -852,7 +953,9 @@ class MainService : NotificationListenerService() {
                     || prefs.getBoolean("lyric_selection_manual", false)
                     || prefs.getBoolean("lyric_manual_search", false)
                 ) {
-                    saveLrc(title, artist, lyric)
+                    val currentTitle = prefs.getString("now_title", title)?.takeIf { it.isNotBlank() } ?: title
+                    val currentArtist = prefs.getString("now_artist", artist)?.takeIf { it.isNotBlank() } ?: artist
+                    saveLrc(currentTitle, currentArtist, lyric)
                 }
                 parseLyrics(lyric)
                 refreshCurrentLyricDisplay()
@@ -860,7 +963,7 @@ class MainService : NotificationListenerService() {
         }
     }
 
-    private fun fetchQqLyric(songMid: String, id: Long, musicBeforeRequest: String, title: String, artist: String) {
+    private fun fetchQqLyric(songMid: String, id: Long, musicBeforeRequest: String, title: String, artist: String, previewOnly: Boolean = false) {
         val url = "https://oiapi.net/api/QQMusicLyric?id=${URLEncoder.encode(songMid, "UTF-8")}&format=lrc&type=json"
         val request = object : StringRequest(Request.Method.GET, url, { body ->
             if (musicBeforeRequest == currentMusic) runCatching {
@@ -868,13 +971,21 @@ class MainService : NotificationListenerService() {
                 val lyric = normalizeQqLyric(json.optJSONObject("data")?.optString("conteng")?.takeIf { it.isNotBlank() }
                     ?: json.optString("message").takeIf { it.contains("[") && it.isNotBlank() }
                     ?: error("歌曲无歌词"))
+                if (previewOnly) {
+                    settingsPrefs().edit().putString("preview_lyric", lyric).putLong("preview_lyric_version", System.currentTimeMillis()).apply()
+                    return@runCatching
+                }
                 activeResultId = id.toInt()
                 settingsPrefs().edit()
                     .putString("current_lyric_source", lyric)
                     .putString("current_lyric_source_key", currentMusic)
                     .apply()
                 val prefs = settingsPrefs()
-                if (prefs.getBoolean("save_lyrics_automatically", true) || prefs.getBoolean("lyric_selection_manual", false) || prefs.getBoolean("lyric_manual_search", false)) saveLrc(title, artist, lyric)
+                if (prefs.getBoolean("save_lyrics_automatically", true) || prefs.getBoolean("lyric_selection_manual", false) || prefs.getBoolean("lyric_manual_search", false)) {
+                    val currentTitle = prefs.getString("now_title", title)?.takeIf { it.isNotBlank() } ?: title
+                    val currentArtist = prefs.getString("now_artist", artist)?.takeIf { it.isNotBlank() } ?: artist
+                    saveLrc(currentTitle, currentArtist, lyric)
+                }
                 parseLyrics(lyric)
                 refreshCurrentLyricDisplay()
             }.onFailure { showMessage("歌曲无歌词") }
@@ -948,30 +1059,10 @@ class MainService : NotificationListenerService() {
         currentLine = ""
         nextLine = ""
         currentLineStartMs = Long.MIN_VALUE
-        val taggedOffset = Regex("(?im)^\\[offset:([+-]?\\d+)\\]").find(lyrics)?.groupValues?.getOrNull(1)?.toIntOrNull()
-        val songOffset = (taggedOffset ?: 0).coerceIn(-30000, 30000)
-        val offset = songOffset
-        loadedSongOffsetMs = songOffset
-        settingsPrefs().edit().putInt("current_song_offset_ms", songOffset).apply()
-        val timeTagRegex = Regex("\\[(\\d+):(\\d{1,2})(?:[.:](\\d+))?\\]")
-        Regex("(\\[[\\d.:]+])+([^\\[\\n]*)").findAll(lyrics).forEach { line ->
-            val content = line.groupValues[2]
-            timeTagRegex.findAll(line.value).forEach { tag ->
-                val minutes = tag.groupValues[1].toLongOrNull() ?: return@forEach
-                val seconds = tag.groupValues[2].toLongOrNull() ?: return@forEach
-                val fraction = tag.groupValues[3]
-                val milliseconds = when {
-                    fraction.isEmpty() -> 0L
-                    fraction.length == 1 -> fraction.toLong() * 100L
-                    fraction.length == 2 -> fraction.toLong() * 10L
-                    else -> fraction.take(3).toLong()
-                }
-                val time = (((minutes * 60L + seconds) * 1000L) + milliseconds + offset.toLong())
-                    .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
-                    .toInt()
-                currentMusicLyrics.append(time, content.trim())
-            }
-        }
+        val parsed = parseLyricText(lyrics)
+        loadedSongOffsetMs = lyricOffsetMs(lyrics)
+        settingsPrefs().edit().putInt("current_song_offset_ms", loadedSongOffsetMs).apply()
+        parsed.forEach { currentMusicLyrics.append(it.timeMs, it.text) }
         settingsPrefs().edit().putString("current_lyric_loaded_key", currentMusic).apply()
     }
 

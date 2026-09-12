@@ -56,8 +56,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -69,6 +72,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import android.graphics.BitmapFactory
 import android.widget.Toast
+import android.widget.ImageView
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
@@ -85,9 +89,13 @@ import androidx.compose.animation.togetherWith
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import org.json.JSONArray
+import com.android.volley.toolbox.ImageRequest
+import com.android.volley.toolbox.Volley
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Community
 import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
@@ -181,17 +189,21 @@ private fun LiriNavigation(refreshToken: Int) {
 private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onEditor: () -> Unit) {
     val context = LocalContext.current
     var player by remember { mutableStateOf(readPlayerSnapshot(context)) }
+    var settingsExpanded by remember { mutableStateOf(true) }
     DisposableEffect(context) {
         val preferences = context.settingsPrefs()
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
             player = readPlayerSnapshot(context)
+            if (preferences.getBoolean("expand_now_playing", false)) {
+                preferences.edit().remove("expand_now_playing").apply()
+                settingsExpanded = false
+            }
         }
         preferences.registerOnSharedPreferenceChangeListener(listener)
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     val listState = rememberLazyListState()
     val overscrollOffset = remember { mutableFloatStateOf(0f) }
-    var settingsExpanded by remember { mutableStateOf(true) }
     Scaffold(
         containerColor = MiuixTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0.dp),
@@ -259,8 +271,8 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onEditor:
     }
 }
 
-private data class SearchResult(val id: Long, val key: String, val title: String, val artist: String, val album: String)
-private data class PlayerSnapshot(val title: String, val artist: String, val album: String, val cover: String?, val coverVersion: Long, val currentLyric: String, val nextLyric: String, val lyricProgress: Float, val lyricStartElapsed: Long, val lyricDurationMs: Long, val results: List<SearchResult>, val selectedId: Long, val autoSave: Boolean, val songOffsetMs: Int, val serviceStarted: Boolean, val localLrcExists: Boolean, val manualSearch: Boolean, val searchingLyrics: Boolean, val searchSource: String?, val playing: Boolean, val playbackPackage: String, val notificationIcon: String?, val notificationIconPackage: String)
+private data class SearchResult(val id: Long, val key: String, val title: String, val artist: String, val album: String, val cover: String)
+private data class PlayerSnapshot(val title: String, val artist: String, val album: String, val cover: String?, val coverVersion: Long, val currentLyric: String, val nextLyric: String, val lyricProgress: Float, val lyricStartElapsed: Long, val lyricDurationMs: Long, val results: List<SearchResult>, val selectedId: Long, val autoSave: Boolean, val songOffsetMs: Int, val serviceStarted: Boolean, val localLrcExists: Boolean, val manualSearch: Boolean, val searchingLyrics: Boolean, val searchSource: String?, val playing: Boolean, val playbackPackage: String, val notificationIcon: String?, val notificationIconPackage: String, val previewLyric: String, val previewLyricVersion: Long, val previewCoverUrl: String, val albumArtVersion: Long, val playbackPositionMs: Long, val playbackUpdatedElapsed: Long)
 
 private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
     val prefs = context.settingsPrefs()
@@ -268,15 +280,15 @@ private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
         val array = JSONArray(prefs.getString("lyric_search_results", "[]"))
         (0 until array.length()).map { item ->
             val value = array.getJSONObject(item)
-            SearchResult(value.getLong("id"), value.optString("key", value.getLong("id").toString()), value.optString("title"), value.optString("artist"), value.optString("album"))
+            SearchResult(value.getLong("id"), value.optString("key", value.getLong("id").toString()), value.optString("title"), value.optString("artist"), value.optString("album"), value.optString("cover"))
         }
     }.getOrDefault(emptyList())
     return PlayerSnapshot(
         prefs.getString("now_title", "") ?: "",
         prefs.getString("now_artist", "") ?: "",
         prefs.getString("now_album", "") ?: "",
-        prefs.getString("now_cover", null),
-        prefs.getLong("now_cover_version", 0L),
+        localAlbumArt(prefs.getString("now_title", "") ?: "", prefs.getString("now_artist", "") ?: "") ?: prefs.getString("now_cover", null),
+        maxOf(prefs.getLong("now_cover_version", 0L), prefs.getLong("album_art_version", 0L)),
         prefs.getString("now_lyric_current", "") ?: "",
         prefs.getString("now_lyric_next", "") ?: "",
         prefs.getFloat("now_lyric_progress", 0f).coerceIn(0f, 1f),
@@ -295,7 +307,19 @@ private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
         prefs.getString("playback_package", "") ?: "",
         prefs.getString("playback_notification_icon", null),
         prefs.getString("playback_notification_package", "") ?: "",
+        prefs.getString("preview_lyric", "") ?: "",
+        prefs.getLong("preview_lyric_version", 0L),
+        prefs.getString("preview_cover_url", "") ?: "",
+        prefs.getLong("album_art_version", 0L),
+        prefs.getLong("playback_position_ms", 0L),
+        prefs.getLong("playback_updated_elapsed", 0L),
     )
+}
+
+private fun localAlbumArt(title: String, artist: String): String? {
+    if (title.isBlank()) return null
+    val file = File("/sdcard/Music/Liri/.albumart", "$title - $artist.png".replace(Regex("[\\\\/:*?\"<>|]"), "_"))
+    return file.takeIf { it.isFile }?.absolutePath
 }
 
 private fun localLrcExists(title: String, artist: String): Boolean {
@@ -316,12 +340,18 @@ private fun clearLocalLrc(title: String, artist: String): Result<Unit> = runCatc
 private fun NowPlayingCard(player: PlayerSnapshot, settingsExpanded: Boolean, onEditor: () -> Unit, onToggleSettings: () -> Unit) {
     val context = LocalContext.current
     val playingHeaderBackground = Color.Black.copy(alpha = if (isSystemInDarkTheme()) 0.24f else 0.06f)
-    val cover = remember(player.cover, player.coverVersion) { player.cover?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() } }
-    val playbackAppIcon = remember(player.playbackPackage) { loadApplicationIcon(context, player.playbackPackage) }
-    val notificationIcon = remember(player.notificationIcon, player.notificationIconPackage, player.playbackPackage) {
-        if (player.notificationIconPackage == player.playbackPackage) {
-            player.notificationIcon?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
-        } else null
+    val cover by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, player.cover, player.coverVersion) {
+        value = withContext(Dispatchers.IO) { player.cover?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() } }
+    }
+    val playbackAppIcon by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, player.playbackPackage) {
+        value = withContext(Dispatchers.IO) { loadApplicationIcon(context, player.playbackPackage) }
+    }
+    val notificationIcon by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, player.notificationIcon, player.notificationIconPackage, player.playbackPackage) {
+        value = withContext(Dispatchers.IO) {
+            if (player.notificationIconPackage == player.playbackPackage) {
+                player.notificationIcon?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
+            } else null
+        }
     }
     val playbackIcon = notificationIcon ?: playbackAppIcon
     var liveProgress by remember(player.title, player.currentLyric, player.lyricStartElapsed) {
@@ -627,6 +657,7 @@ private fun LyricEditingFragment(player: PlayerSnapshot, context: Context, onEdi
 
 @Composable
 private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
+    var expandedResultKey by remember(player.title) { mutableStateOf<String?>(null) }
     var searchQuery by remember(player.title, player.artist) {
         mutableStateOf(defaultLyricSearchQuery(player.title, player.artist))
     }
@@ -645,7 +676,7 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
             context.startService(Intent(context, MainService::class.java).setAction(ACTION_SEARCH_LYRICS))
         }
         Row(
-            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
+            modifier = Modifier.fillMaxWidth().requiredHeight(56.dp).padding(start = 8.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BasicTextField(
@@ -657,7 +688,6 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
                 modifier = Modifier
                     .weight(1f)
                     .padding(end = 8.dp)
-                    .background(MiuixTheme.colorScheme.surfaceContainer, RoundedCornerShape(10.dp))
                     .padding(horizontal = 8.dp, vertical = 6.5.dp),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -723,26 +753,156 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
             }
         } else if (player.results.isNotEmpty()) {
             player.results.forEachIndexed { index, result ->
-                if (index > 0) CouixItemDivider()
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable {
+                val expanded = expandedResultKey == result.key
+                val previousExpanded = index > 0 && expandedResultKey == player.results[index - 1].key
+                if (index > 0 && !expanded && !previousExpanded) CouixItemDivider()
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (expanded) {
+                        SearchResultPreview(player, result, context) {
+                            expandedResultKey = null
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                expandedResultKey = result.key
+                                context.settingsPrefs().edit()
+                                    .putLong("preview_lyric_id", result.id)
+                                    .putString("preview_lyric_key", result.key)
+                                    .putString("preview_lyric_source", player.searchSource ?: "netease")
+                                    .putString("preview_lyric_title", result.title)
+                                    .putString("preview_lyric_artist", result.artist)
+                                    .putString("preview_album_art_url", result.cover)
+                                    .putString("preview_album_art_title", result.title)
+                                    .putString("preview_album_art_artist", result.artist)
+                                    .remove("preview_lyric")
+                                    .remove("preview_cover_url")
+                                    .apply()
+                                context.startService(Intent(context, MainService::class.java).setAction(ACTION_PREVIEW_SEARCH_LYRICS))
+                            }.padding(horizontal = 16.dp, vertical = 0.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CouixPreferenceText(
+                                title = result.title,
+                                subtitle = "${result.artist} - ${result.album}",
+                                titleColor = if (result.id == player.selectedId) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchResultPreview(player: PlayerSnapshot, result: SearchResult, context: Context, onCollapse: () -> Unit) {
+    val coverUrl = player.previewCoverUrl.ifBlank { result.cover }
+    var previewCover by remember(result.key) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+    DisposableEffect(result.key, coverUrl) {
+        val requestQueue = Volley.newRequestQueue(context)
+        val request = if (coverUrl.isNotBlank()) ImageRequest(
+            coverUrl,
+            { bitmap -> previewCover = bitmap.asImageBitmap() },
+            0,
+            0,
+            ImageView.ScaleType.CENTER_CROP,
+            android.graphics.Bitmap.Config.ARGB_8888,
+            {},
+        ) else null
+        request?.let { requestQueue.add(it) }
+        onDispose { requestQueue.cancelAll { true }; requestQueue.stop() }
+    }
+    val latestPlayer by rememberUpdatedState(player)
+    var position by remember(result.key, player.previewLyricVersion) { mutableLongStateOf(0L) }
+    LaunchedEffect(result.key, player.previewLyricVersion) {
+        while (true) {
+            val playbackPosition = latestPlayer.playbackPositionMs + if (latestPlayer.playing && latestPlayer.playbackUpdatedElapsed > 0L) {
+                (SystemClock.elapsedRealtime() - latestPlayer.playbackUpdatedElapsed).coerceAtLeast(0L)
+            } else 0L
+            position = playbackPosition.coerceAtLeast(0L)
+            delay(16)
+        }
+    }
+    val lines = remember(player.previewLyric, player.previewLyricVersion) { parseLyricText(player.previewLyric) }
+    val currentIndex = lines.indexOfLast { it.timeMs.toLong() <= position }
+    val currentLine = lines.getOrNull(currentIndex)
+    val nextLine = lines.getOrNull(currentIndex + 1)
+    val current = currentLine?.text.orEmpty()
+    val next = nextLine?.text.orEmpty()
+    val previewProgress = if (currentLine != null && nextLine != null && nextLine.timeMs > currentLine.timeMs) {
+        ((position - currentLine.timeMs) / (nextLine.timeMs - currentLine.timeMs).toFloat()).coerceIn(0f, 1f)
+    } else 0f
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(2.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                if (isSystemInDarkTheme()) {
+                    MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                } else {
+                    Color.Black.copy(alpha = 0.06f)
+                },
+            ),
+    ) {
+      Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            AnimatedVisibility(
+                visible = true,
+                enter = slideInHorizontally(tween(260)) { -it / 2 } + fadeIn(tween(220)),
+            ) {
+                PlayingArtwork(previewCover, 52.dp)
+            }
+            Spacer(Modifier.width(14.dp))
+            CouixPreferenceText(title = result.title, subtitle = "${result.artist} - ${result.album}", modifier = Modifier.weight(1f))
+        }
+        CouixPreferenceText(
+            title = current,
+            subtitle = next,
+            subtitleColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            animateText = true,
+            progress = previewProgress,
+            animateProgress = false,
+            compressPunctuation = true,
+            contentHorizontalPadding = 16.dp,
+            modifier = Modifier.requiredHeight(76.dp),
+        )
+        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                BasicText(
+                    text = "使用歌词",
+                    style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.primary),
+                    modifier = Modifier.clickable {
                         context.settingsPrefs().edit()
                             .putLong("selected_lyric_id", result.id)
                             .putString("selected_lyric_key", result.key)
                             .putBoolean("lyric_selection_manual", true)
                             .apply()
-                    }.padding(horizontal = 16.dp, vertical = 0.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    CouixPreferenceText(
-                        title = result.title,
-                        subtitle = "${result.artist} - ${result.album}",
-                        // modifier = Modifier.weight(1f),
-                        titleColor = if (result.id == player.selectedId) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
-                    )
-                }
+                    }.padding(vertical = 8.dp),
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(16.dp)
+                    .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.18f)),
+            )
+            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                BasicText(
+                    text = "使用专辑封面",
+                    style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.primary),
+                    modifier = Modifier.clickable {
+                        context.settingsPrefs().edit()
+                            .putString("preview_album_art_url", player.previewCoverUrl.ifBlank { result.cover })
+                            .putString("preview_album_art_title", result.title)
+                            .putString("preview_album_art_artist", result.artist)
+                            .apply()
+                        context.startService(Intent(context, MainService::class.java).setAction(ACTION_SAVE_SEARCH_ALBUM_ART))
+                    }.padding(vertical = 8.dp),
+                )
             }
         }
+      }
     }
 }
 
