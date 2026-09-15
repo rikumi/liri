@@ -1,4 +1,4 @@
-<img width="6242" height="3478" alt="liri-screenshots" src="https://github.com/user-attachments/assets/7d2a35b3-b4fa-4e18-8294-30dd952668aa" />
+<img width="6155" height="3334" alt="liri-screenshots" src="https://github.com/user-attachments/assets/7ac93998-b16a-42dc-9e30-b780d7b11c97" />
 
 # Liri
 
