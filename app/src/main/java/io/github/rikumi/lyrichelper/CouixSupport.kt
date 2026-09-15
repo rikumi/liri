@@ -9,7 +9,8 @@ internal data class GroupTitleItem(val title: String) : SettingsItem
 internal data class SwitchItem(
     val key: String, val label: String, val subtitle: String? = null,
     val sliderKey: String? = null, val sliderMax: Int = 0, val sliderDefault: Int = 0,
-    val sliderUnit: String = "dp", val sliderMin: Int = 0,
+    val sliderUnit: String = "dp", val sliderMin: Int = 0, val sliderStep: Int = 1,
+    val sliderValueText: ((Int) -> String)? = null,
 ) : SettingsItem
 internal data class FolderBlockItem(val key: String, val label: String, val folderName: String) : SettingsItem
 internal data class SelectItem(

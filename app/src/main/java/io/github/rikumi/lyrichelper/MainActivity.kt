@@ -980,33 +980,38 @@ private data class PermissionEntry(val title: String, val subtitle: String, val 
 @Composable
 private fun PermissionScreen(refreshToken: Int, onBack: () -> Unit) {
     val context = LocalContext.current
-    val entries = buildList {
-        add(PermissionEntry("通知读取权限", "若播放信息始终没有更新，请尝试重新授权", isNotificationListenerEnabled(context)) {
-            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-        })
-        add(PermissionEntry("存储空间权限", "保存歌词文件用于手动选词", hasStorageAccess(context)) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                context.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}")))
-            } else {
-                (context as? ComponentActivity)?.requestPermissions(
-                    arrayOf("android.permission.READ_EXTERNAL_STORAGE", "android.permission.WRITE_EXTERNAL_STORAGE"),
-                    1001,
-                )
-            }
-        })
-        add(PermissionEntry("后台运行权限", "关闭电池优化，避免服务被系统暂停", isIgnoringBatteryOptimizations(context)) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")))
-        })
-        add(PermissionEntry("悬浮窗权限", "通过悬浮窗显示当前歌词", Settings.canDrawOverlays(context)) {
-            context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
-        })
+    val entries = remember(refreshToken) {
+        buildList {
+            add(PermissionEntry("通知读取权限", "若播放信息始终没有更新，请尝试重新授权", isNotificationListenerEnabled(context)) {
+                context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+            })
+            add(PermissionEntry("存储空间权限", "保存歌词文件用于手动选词", hasStorageAccess(context)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    context.startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:${context.packageName}")))
+                } else {
+                    (context as? ComponentActivity)?.requestPermissions(
+                        arrayOf("android.permission.READ_EXTERNAL_STORAGE", "android.permission.WRITE_EXTERNAL_STORAGE"),
+                        1001,
+                    )
+                }
+            })
+            add(PermissionEntry("后台运行权限", "关闭电池优化，避免服务被系统暂停", isIgnoringBatteryOptimizations(context)) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) context.startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")))
+            })
+            add(PermissionEntry("悬浮窗权限", "通过悬浮窗显示当前歌词", Settings.canDrawOverlays(context)) {
+                context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+            })
+        }
     }
     val listState = rememberLazyListState()
     Scaffold(containerColor = MiuixTheme.colorScheme.surface, contentWindowInsets = WindowInsets(0.dp), topBar = { CouixTopAppBar("授予系统权限", dividerProgress = couixTopBarDividerProgress(listState), navigationIcon = { CouixBackButton(onBack) }) }) { padding ->
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding).couixOverscroll(listState)) {
-            items(entries) { entry ->
+            item {
                 CouixCard {
+                    entries.forEachIndexed { index, entry ->
+                        if (index > 0) CouixItemDivider()
                     CouixSwitchPreference(checked = entry.enabled, onCheckedChange = { entry.open() }, title = entry.title, subtitle = entry.subtitle)
+                    }
                 }
             }
         }
@@ -1045,20 +1050,40 @@ private fun StyleScreen(onBack: () -> Unit) {
                 .roundToInt().coerceIn(0, 100)
         } else topDefault
     }
+    LaunchedEffect(Unit) {
+        val editor = prefs.edit()
+        fun migrate(valueKey: String, enabledKey: String, default: Int) {
+            if (!prefs.contains(enabledKey) && prefs.contains(valueKey)) {
+                editor.putBoolean(enabledKey, prefs.getInt(valueKey, default) != default)
+            }
+        }
+        if (!prefs.contains(KEY_TOP) && topValue != topDefault) editor.putInt(KEY_TOP, topValue)
+        migrate(KEY_LEFT, KEY_LEFT_ENABLED, DEFAULT_LEFT)
+        if (!prefs.contains(KEY_TOP_ENABLED) && topValue != topDefault) editor.putBoolean(KEY_TOP_ENABLED, true)
+        migrate(KEY_WIDTH, KEY_WIDTH_ENABLED, widthDefault)
+        migrate(KEY_FONT, KEY_FONT_ENABLED, DEFAULT_FONT)
+        migrate(KEY_ANGLE, KEY_ANGLE_ENABLED, DEFAULT_ANGLE)
+        migrate(KEY_DISTANCE, KEY_DISTANCE_ENABLED, DEFAULT_DISTANCE)
+        migrate(KEY_DURATION, KEY_DURATION_ENABLED, DEFAULT_DURATION)
+        migrate(KEY_SHADOW_DIRECTION, KEY_SHADOW_DIRECTION_ENABLED, DEFAULT_SHADOW_DIRECTION)
+        migrate(KEY_SHADOW_RADIUS, KEY_SHADOW_RADIUS_ENABLED, DEFAULT_SHADOW_RADIUS)
+        editor.apply()
+    }
     val listState = rememberLazyListState()
     Scaffold(containerColor = MiuixTheme.colorScheme.surface, contentWindowInsets = WindowInsets(0.dp), topBar = { CouixTopAppBar("位置与样式", dividerProgress = couixTopBarDividerProgress(listState), navigationIcon = { CouixBackButton(onBack) }) }) { padding ->
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding).couixOverscroll(listState)) {
         item {
             CouixSmallTitle("悬浮歌词位置")
-            CouixCard {
-                StyleSlider("左边界", "dp", prefs.getInt(KEY_LEFT, DEFAULT_LEFT), 0, 64, DEFAULT_LEFT) { setInt(context, KEY_LEFT, it) }
-                CouixItemDivider()
-                StyleSlider("Y 坐标（上边距）", "%", topValue, 0, 100, topDefault, valueText = { "%.1f%%".format(Locale.ROOT, it / 10f) }) { setInt(context, KEY_TOP, it) }
-                CouixItemDivider()
-                StyleSlider("宽度", "dp", prefs.getInt(KEY_WIDTH, widthDefault), 100, widthMax, widthDefault) { setInt(context, KEY_WIDTH, it) }
-                CouixItemDivider()
-                StyleSlider("字号", "sp", prefs.getInt(KEY_FONT, DEFAULT_FONT), 10, 18, DEFAULT_FONT) { setInt(context, KEY_FONT, it) }
-            }
+            CouixGroup(
+                items = listOf(
+                    SwitchItem(KEY_LEFT_ENABLED, "调整左边界", sliderKey = KEY_LEFT, sliderMin = 0, sliderMax = 64, sliderDefault = DEFAULT_LEFT),
+                    SwitchItem(KEY_TOP_ENABLED, "调整 Y 坐标（上边距）", sliderKey = KEY_TOP, sliderMin = 0, sliderMax = 100, sliderDefault = topDefault, sliderUnit = "%", sliderValueText = { "%.1f%%".format(Locale.ROOT, it / 10f) }),
+                    SwitchItem(KEY_WIDTH_ENABLED, "调整宽度", sliderKey = KEY_WIDTH, sliderMin = 100, sliderMax = widthMax, sliderDefault = widthDefault),
+                    SwitchItem(KEY_FONT_ENABLED, "调整字号", sliderKey = KEY_FONT, sliderMin = 10, sliderMax = 18, sliderDefault = DEFAULT_FONT, sliderUnit = "sp"),
+                ),
+                prefs = prefs,
+                ctx = context,
+            )
         }
         item {
             CouixSmallTitle("避开通知图标")
@@ -1089,34 +1114,29 @@ private fun StyleScreen(onBack: () -> Unit) {
         }
         item {
             CouixSmallTitle("歌词动画")
-            CouixCard {
-                StyleSlider("切入角度", "°", prefs.getInt(KEY_ANGLE, DEFAULT_ANGLE), 0, 360, DEFAULT_ANGLE, step = 15) { setInt(context, KEY_ANGLE, it) }
-                CouixItemDivider()
-                StyleSlider("切入距离", "dp", prefs.getInt(KEY_DISTANCE, DEFAULT_DISTANCE), 8, 64, DEFAULT_DISTANCE) { setInt(context, KEY_DISTANCE, it) }
-                CouixItemDivider()
-                StyleSlider("切入切出持续时间", "ms", prefs.getInt(KEY_DURATION, DEFAULT_DURATION), 100, 600, DEFAULT_DURATION) { setInt(context, KEY_DURATION, it) }
-            }
+            CouixGroup(
+                items = listOf(
+                    SwitchItem(KEY_ANGLE_ENABLED, "调整切入角度", sliderKey = KEY_ANGLE, sliderMin = 0, sliderMax = 360, sliderDefault = DEFAULT_ANGLE, sliderUnit = "°", sliderStep = 15),
+                    SwitchItem(KEY_DISTANCE_ENABLED, "调整切入距离", sliderKey = KEY_DISTANCE, sliderMin = 8, sliderMax = 64, sliderDefault = DEFAULT_DISTANCE),
+                    SwitchItem(KEY_DURATION_ENABLED, "调整切入切出持续时间", sliderKey = KEY_DURATION, sliderMin = 50, sliderMax = 600, sliderDefault = DEFAULT_DURATION, sliderUnit = "ms", sliderStep = 50),
+                ),
+                prefs = prefs,
+                ctx = context,
+            )
+        }
+        item {
+            CouixSmallTitle("歌词阴影")
+            CouixGroup(
+                items = listOf(
+                    SwitchItem(KEY_SHADOW_DIRECTION_ENABLED, "调整阴影方向", sliderKey = KEY_SHADOW_DIRECTION, sliderMin = 0, sliderMax = 360, sliderDefault = DEFAULT_SHADOW_DIRECTION, sliderUnit = "°", sliderStep = 15),
+                    SwitchItem(KEY_SHADOW_RADIUS_ENABLED, "调整阴影半径", sliderKey = KEY_SHADOW_RADIUS, sliderMin = 0, sliderMax = 12, sliderDefault = DEFAULT_SHADOW_RADIUS),
+                ),
+                prefs = prefs,
+                ctx = context,
+            )
         }
         }
     }
-}
-
-@Composable
-private fun StyleSlider(title: String, unit: String, value: Int, min: Int, max: Int, default: Int, step: Int = 1, valueText: ((Int) -> String)? = null, onChange: (Int) -> Unit) {
-    fun snap(raw: Int): Int = (min + ((raw - min + step / 2) / step) * step).coerceIn(min, max)
-    var current by remember(value, min, max, step) { mutableIntStateOf(snap(value)) }
-    CouixSliderPreference(
-        title = title,
-        value = current,
-        unit = unit,
-        min = min,
-        max = max,
-        valueText = valueText?.invoke(current),
-        onValueChange = {
-            current = snap((min + it * (max - min)).toInt())
-            onChange(current)
-        },
-    )
 }
 
 @Composable
@@ -1131,23 +1151,36 @@ internal fun CouixBackButton(onBack: () -> Unit) {
     }
 }
 
-private const val KEY_LEFT = "overlay_left_dp"
-private const val KEY_TOP = "overlay_top_percent_tenths"
-private const val KEY_WIDTH = "overlay_width_dp"
-private const val KEY_FONT = "overlay_font_sp"
+internal const val KEY_LEFT = "overlay_left_dp"
+internal const val KEY_LEFT_ENABLED = "overlay_left_dp_enabled"
+internal const val KEY_TOP = "overlay_top_percent_tenths"
+internal const val KEY_TOP_ENABLED = "overlay_top_percent_enabled"
+internal const val KEY_WIDTH = "overlay_width_dp"
+internal const val KEY_WIDTH_ENABLED = "overlay_width_enabled"
+internal const val KEY_FONT = "overlay_font_sp"
+internal const val KEY_FONT_ENABLED = "overlay_font_enabled"
 private const val KEY_SHIFT_ON_NOTIFICATION = "overlay_shift_on_notification"
 private const val KEY_SHIFT_ON_NOTIFICATION_DP = "overlay_shift_on_notification_dp"
 private const val KEY_SHIFT_EACH_NOTIFICATION = "overlay_shift_each_notification"
 private const val KEY_SHIFT_EACH_NOTIFICATION_DP = "overlay_shift_each_notification_dp"
-private const val KEY_ANGLE = "lyric_animation_angle"
-private const val KEY_DISTANCE = "lyric_animation_distance_dp"
-private const val KEY_DURATION = "lyric_animation_duration_ms"
-private const val DEFAULT_LEFT = 12
-private const val DEFAULT_WIDTH = 236
-private const val DEFAULT_FONT = 13
-private const val DEFAULT_ANGLE = 180
-private const val DEFAULT_DISTANCE = 32
-private const val DEFAULT_DURATION = 280
+internal const val KEY_ANGLE = "lyric_animation_angle"
+internal const val KEY_ANGLE_ENABLED = "lyric_animation_angle_enabled"
+internal const val KEY_DISTANCE = "lyric_animation_distance_dp"
+internal const val KEY_DISTANCE_ENABLED = "lyric_animation_distance_enabled"
+internal const val KEY_DURATION = "lyric_animation_duration_ms"
+internal const val KEY_DURATION_ENABLED = "lyric_animation_duration_enabled"
+internal const val KEY_SHADOW_DIRECTION = "lyric_shadow_direction"
+internal const val KEY_SHADOW_DIRECTION_ENABLED = "lyric_shadow_direction_enabled"
+internal const val KEY_SHADOW_RADIUS = "lyric_shadow_radius_dp"
+internal const val KEY_SHADOW_RADIUS_ENABLED = "lyric_shadow_radius_enabled"
+internal const val DEFAULT_LEFT = 12
+internal const val DEFAULT_WIDTH = 236
+internal const val DEFAULT_FONT = 13
+internal const val DEFAULT_ANGLE = 180
+internal const val DEFAULT_DISTANCE = 32
+internal const val DEFAULT_DURATION = 300
+internal const val DEFAULT_SHADOW_DIRECTION = 180
+internal const val DEFAULT_SHADOW_RADIUS = 3
 
 private fun defaultTop(context: Context): Int {
     val id = context.resources.getIdentifier("status_bar_height", "dimen", "android")

@@ -409,13 +409,12 @@ private fun CouixSinglePassMarqueeText(
     }
     var containerWidthPx by remember { mutableIntStateOf(0) }
     val offset = remember { Animatable(0f) }
+    val visibleWidthPx = (containerWidthPx - with(density) { horizontalPadding.toPx() * 2 }).coerceAtLeast(0f)
     LaunchedEffect(text, textWidthPx, containerWidthPx, horizontalPadding, textAlign) {
         offset.stop()
-        val visibleWidthPx = (containerWidthPx - with(density) { horizontalPadding.toPx() * 2 }).coerceAtLeast(0f)
         val overflowTarget = (visibleWidthPx - textWidthPx).coerceAtMost(0f)
-        val start = if (overflowTarget == 0f && textAlign == TextAlign.Center) {
-            (visibleWidthPx - textWidthPx).coerceAtLeast(0f) / 2f
-        } else 0f
+        // 超长文本必须从内容区域左边开始，不能从居中位置进入滚动。
+        val start = 0f
         offset.snapTo(start)
         if (overflowTarget < 0f) {
             delay(500L)
@@ -433,7 +432,7 @@ private fun CouixSinglePassMarqueeText(
     ) {
         BasicText(
             text = text,
-            style = style,
+            style = style.copy(textAlign = if (textWidthPx > visibleWidthPx) TextAlign.Start else textAlign),
             modifier = Modifier
                 .requiredWidth(
                     with(density) { textWidthPx.toDp() } + horizontalPadding * 2,
@@ -2071,7 +2070,7 @@ private fun CouixSwitchRow(
     // 带滑条的设置项: 数值显示在标题行右侧, 滑条默认折叠; 单独开启功能时自动展开。
     var expanded by remember(item.key) { mutableStateOf(false) }
     var intVal by remember(item.sliderKey, item.sliderMin, item.sliderMax, version, overrideValue) {
-        mutableStateOf(prefs.getInt(item.sliderKey, item.sliderDefault).coerceIn(item.sliderMin, item.sliderMax))
+        mutableStateOf(snapSliderValue(item, prefs.getInt(item.sliderKey, item.sliderDefault)))
     }
     Column(modifier = Modifier.fillMaxWidth()) {
         CouixSwitchPreference(
@@ -2096,7 +2095,7 @@ private fun CouixSwitchRow(
             leftTrailingContent = {
                 if (checked) {
                     BasicText(
-                        text = "${intVal}${item.sliderUnit}",
+                        text = item.sliderValueText?.invoke(intVal) ?: "${intVal}${item.sliderUnit}",
                         style = MiuixTheme.textStyles.body2.copy(
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
                             textAlign = androidx.compose.ui.text.style.TextAlign.End,
@@ -2128,8 +2127,10 @@ private fun CouixSwitchRow(
                     value = ((intVal - item.sliderMin).toFloat() /
                             (item.sliderMax - item.sliderMin).coerceAtLeast(1)).coerceIn(0f, 1f),
                     onValueChange = { f ->
-                        val nv = (item.sliderMin + f * (item.sliderMax - item.sliderMin))
-                            .roundToInt().coerceIn(item.sliderMin, item.sliderMax)
+                        val nv = snapSliderValue(
+                            item,
+                            (item.sliderMin + f * (item.sliderMax - item.sliderMin)).roundToInt(),
+                        )
                         if (nv != intVal) {
                             intVal = nv
                             setInt(ctx, item.sliderKey, nv)
@@ -2142,4 +2143,10 @@ private fun CouixSwitchRow(
             }
         }
     }
+}
+
+private fun snapSliderValue(item: SwitchItem, raw: Int): Int {
+    val step = item.sliderStep.coerceAtLeast(1)
+    return (item.sliderMin + ((raw - item.sliderMin + step / 2) / step) * step)
+        .coerceIn(item.sliderMin, item.sliderMax)
 }

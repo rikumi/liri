@@ -140,7 +140,13 @@ class MainService : NotificationListenerService() {
                 }
                 if (overlaySettingChanged) applyOverlaySettings()
                 if (key == "current_song_offset_ms") reloadLyricsAfterSongOffsetChange()
-                refreshCurrentLyricDisplay()
+                if (key == "selected_lyric_id" || key == "lyric_selection_manual") {
+                    activeResultId = -1
+                    requestedResultId = -1
+                    refreshLyrics(observedTitle, observedArtist, observedAlbum, observedController?.playbackState?.position ?: 0L)
+                } else {
+                    refreshCurrentLyricDisplay()
+                }
             }
         }
     }
@@ -352,44 +358,91 @@ class MainService : NotificationListenerService() {
         val requestKey = "$title\u0000$artist\u0000$album\u0000$packageName"
         if (albumArtInFlightKey == requestKey) return
         albumArtInFlightKey = requestKey
-        val query = URLEncoder.encode("$title $artist $album", "UTF-8")
         if (isQqMusicPackage(packageName)) {
-            val url = "https://oiapi.net/api/QQMusicLyric?keyword=$query&page=1&limit=8&type=json"
-            val request = object : StringRequest(Request.Method.GET, url, { body: String ->
-                runCatching {
-                    val songs = parseJsonResponse(body).optJSONArray("data") ?: error("未找到歌曲")
-                    val song = (0 until songs.length()).map { songs.getJSONObject(it) }.maxByOrNull { song ->
-                        coverMatchScore(song.optString("name") ?: "", song.optJSONArray("singer")?.optString(0, "") ?: "", song.optString("album") ?: "", title, artist, album)
-                    } ?: error("未找到匹配歌曲")
-                    val albumObject = song.optJSONObject("album")
-                    val albumMid = albumObject?.optString("mid")?.takeIf { it.isNotBlank() }
-                        ?: song.optString("albummid").takeIf { it.isNotBlank() }
-                        ?: song.optString("album_mid").takeIf { it.isNotBlank() }
-                    check(albumMid != null) { "未找到专辑封面" }
-                    downloadCurrentAlbumArt("https://y.gtimg.cn/music/photo_new/T002R800x800M000$albumMid.jpg", title, artist)
-                }.onFailure { albumArtInFlightKey = "" }
-            }, { _: com.android.volley.VolleyError -> albumArtInFlightKey = "" }) {
-                override fun getHeaders(): MutableMap<String, String> = hashMapOf("Referer" to "https://y.qq.com/", "User-Agent" to "Mozilla/5.0")
-            }
-            request.setShouldCache(false)
-            queue.add(request)
+            requestQqAlbumCover("$title $artist", title, artist, album, currentMusic, true)
         } else {
+            val query = URLEncoder.encode("$title $artist $album", "UTF-8")
             cloudMusicRequest("/api/search/get?type=1&s=$query", currentMusic, preserveStateOnError = true) { response ->
                 runCatching {
                     val songs = response.optJSONObject("result")?.optJSONArray("songs") ?: error("未找到歌曲")
-                    val song = (0 until songs.length()).map { songs.getJSONObject(it) }.maxByOrNull { value ->
+                    val song = (0 until songs.length()).map { songs.getJSONObject(it) }.filter { value ->
+                        exactAlbumMatch(value.optJSONObject("album")?.optString("name") ?: "", album)
+                    }.maxByOrNull { value ->
                         val songArtist = value.optJSONArray("artists")?.optJSONObject(0)?.optString("name", "") ?: ""
                         coverMatchScore(value.optString("name"), songArtist, value.optJSONObject("album")?.optString("name", "") ?: "", title, artist, album)
-                    } ?: error("未找到匹配歌曲")
-                    val id = song.optLong("id", -1L)
-                    check(id > 0L) { "歌曲编号无效" }
-                    cloudMusicRequest("/api/song/detail?ids=[$id]", currentMusic, preserveStateOnError = true) { detail ->
-                        val cover = detail.optJSONArray("songs")?.optJSONObject(0)?.optJSONObject("album")
-                            ?.optString("picUrl")?.takeIf { it.isNotBlank() }?.replace("http://", "https://")
-                        if (cover != null) downloadCurrentAlbumArt(cover, title, artist) else albumArtInFlightKey = ""
+                    }
+                    if (song == null) {
+                        searchNeteaseAlbumCover(album, artist, title, currentMusic)
+                    } else {
+                        val id = song.optLong("id", -1L)
+                        check(id > 0L) { "歌曲编号无效" }
+                        cloudMusicRequest("/api/song/detail?ids=[$id]", currentMusic, preserveStateOnError = true) { detail ->
+                            val cover = detail.optJSONArray("songs")?.optJSONObject(0)?.optJSONObject("album")
+                                ?.optString("picUrl")?.takeIf { it.isNotBlank() }?.replace("http://", "https://")
+                            if (cover != null) downloadCurrentAlbumArt(cover, title, artist) else albumArtInFlightKey = ""
+                        }
                     }
                 }.onFailure { albumArtInFlightKey = "" }
             }
+        }
+    }
+
+    private fun requestQqAlbumCover(query: String, title: String, artist: String, album: String, musicKey: String, fallbackToAlbum: Boolean) {
+        val url = "https://oiapi.net/api/QQMusicLyric?keyword=${URLEncoder.encode(query, "UTF-8")}&page=1&limit=8&type=json"
+        val request = object : StringRequest(Request.Method.GET, url, { body: String ->
+            runCatching {
+                val songs = parseJsonResponse(body).optJSONArray("data")
+                val song = songs?.let { array ->
+                    (0 until array.length()).map { array.getJSONObject(it) }.filter { item ->
+                        val itemAlbum = item.optJSONObject("album")?.optString("name") ?: item.optString("album")
+                        exactAlbumMatch(itemAlbum, album)
+                    }.maxByOrNull { item ->
+                        val itemArtist = item.optJSONArray("singer")?.optString(0, "") ?: ""
+                        coverMatchScore(item.optString("name"), itemArtist, item.optJSONObject("album")?.optString("name") ?: item.optString("album"), title, artist, album)
+                    }
+                }
+                if (song == null && fallbackToAlbum) {
+                    requestQqAlbumCover(album, title, artist, album, musicKey, false)
+                } else {
+                    val albumObject = song?.optJSONObject("album")
+                    val albumMid = albumObject?.optString("mid")?.takeIf { it.isNotBlank() }
+                        ?: song?.optString("albummid")?.takeIf { it.isNotBlank() }
+                        ?: song?.optString("album_mid")?.takeIf { it.isNotBlank() }
+                    if (albumMid == null) error("未找到专辑封面")
+                    downloadCurrentAlbumArt(qqAlbumCoverUrl(albumMid), title, artist)
+                }
+            }.onFailure { albumArtInFlightKey = "" }
+        }, { _: com.android.volley.VolleyError -> albumArtInFlightKey = "" }) {
+            override fun getHeaders(): MutableMap<String, String> = hashMapOf("Referer" to "https://y.qq.com/", "User-Agent" to "Mozilla/5.0")
+        }
+        request.setShouldCache(false)
+        queue.add(request)
+    }
+
+    private fun searchNeteaseAlbumCover(album: String, artist: String, title: String, musicKey: String) {
+        if (album.isBlank()) {
+            albumArtInFlightKey = ""
+            return
+        }
+        val query = URLEncoder.encode(album, "UTF-8")
+        cloudMusicRequest("/api/search/get?type=10&s=$query", musicKey, preserveStateOnError = true) { response ->
+            runCatching {
+                val albums = response.optJSONObject("result")?.optJSONArray("albums") ?: error("未找到专辑")
+                val match = (0 until albums.length()).map { albums.getJSONObject(it) }.filter {
+                    exactAlbumMatch(it.optString("name"), album)
+                }.maxByOrNull { value ->
+                    val albumArtist = value.optJSONArray("artists")?.optJSONObject(0)?.optString("name", "") ?: ""
+                    artistMatchScore(albumArtist, artist)
+                } ?: error("未找到匹配专辑")
+                val id = match.optLong("id", -1L)
+                check(id > 0L) { "专辑编号无效" }
+                cloudMusicRequest("/api/album?id=$id", musicKey, preserveStateOnError = true) { detail ->
+                    val cover = detail.optJSONObject("album")?.optString("picUrl")?.takeIf { it.isNotBlank() }
+                        ?.replace("http://", "https://")
+                        ?: match.optString("picUrl").takeIf { it.isNotBlank() }?.replace("http://", "https://")
+                    if (cover != null) downloadCurrentAlbumArt(cover, title, artist) else albumArtInFlightKey = ""
+                }
+            }.onFailure { albumArtInFlightKey = "" }
         }
     }
 
@@ -457,10 +510,23 @@ class MainService : NotificationListenerService() {
     private fun coverMatchScore(songTitle: String, songArtist: String, songAlbum: String, title: String, artist: String, album: String): Int {
         var score = 0
         if (songTitle.equals(title, ignoreCase = true)) score += 4 else if (songTitle.contains(title, true) || title.contains(songTitle, true)) score += 2
-        if (songArtist.equals(artist, ignoreCase = true)) score += 4 else if (songArtist.contains(artist, true) || artist.contains(songArtist, true)) score += 2
-        if (album.isNotBlank() && songAlbum.equals(album, ignoreCase = true)) score += 3 else if (album.isNotBlank() && (songAlbum.contains(album, true) || album.contains(songAlbum, true))) score++
+        score += artistMatchScore(songArtist, artist)
+        if (exactAlbumMatch(songAlbum, album)) score += 3
         return score
     }
+
+    private fun artistMatchScore(candidate: String, expected: String): Int = when {
+        candidate.equals(expected, ignoreCase = true) -> 4
+        candidate.contains(expected, ignoreCase = true) || expected.contains(candidate, ignoreCase = true) -> 2
+        else -> 0
+    }
+
+    private fun exactAlbumMatch(candidate: String, expected: String): Boolean =
+        expected.isNotBlank() && candidate.trim().replace(Regex("\\s+"), " ")
+            .equals(expected.trim().replace(Regex("\\s+"), " "), ignoreCase = true)
+
+    private fun qqAlbumCoverUrl(albumMid: String): String =
+        "https://y.gtimg.cn/music/photo_new/T002R1500x1500M000$albumMid.jpg"
 
     private fun isNeteaseMusicPackage(packageName: String): Boolean = packageName.lowercase() in setOf(
         "com.netease.cloudmusic",
@@ -993,7 +1059,7 @@ class MainService : NotificationListenerService() {
                             .put("title", song.optString("name", title))
                             .put("artist", singer)
                             .put("album", albumName)
-                            .put("cover", if (albumMid != null) "https://y.gtimg.cn/music/photo_new/T002R300x300M000$albumMid.jpg" else ""))
+                            .put("cover", if (albumMid != null) qqAlbumCoverUrl(albumMid) else ""))
                     }
                     val selectedId = if (preserveLocalLyric) -1L else results.getJSONObject(0).getLong("id")
                     val selectedKey = if (preserveLocalLyric) "" else results.getJSONObject(0).getString("key")
@@ -1301,11 +1367,15 @@ class MainService : NotificationListenerService() {
             y = topSettingPx(prefs)
         }
         overlayParams = params
-        view.setFontSize(prefs.getInt("overlay_font_sp", 13).coerceIn(10, 18).toFloat())
+        view.setFontSize(styleInt(prefs, KEY_FONT_ENABLED, KEY_FONT, DEFAULT_FONT, 10, 18).toFloat())
         view.setAnimation(
-            prefs.getInt("lyric_animation_angle", 180).coerceIn(0, 360).toFloat(),
-            prefs.getInt("lyric_animation_distance_dp", 32).coerceIn(8, 64),
-            prefs.getInt("lyric_animation_duration_ms", 280).coerceIn(100, 600),
+            styleInt(prefs, KEY_ANGLE_ENABLED, KEY_ANGLE, DEFAULT_ANGLE, 0, 360).toFloat(),
+            styleInt(prefs, KEY_DISTANCE_ENABLED, KEY_DISTANCE, DEFAULT_DISTANCE, 8, 64),
+            animationDuration(prefs),
+        )
+        view.setShadow(
+            styleInt(prefs, KEY_SHADOW_DIRECTION_ENABLED, KEY_SHADOW_DIRECTION, DEFAULT_SHADOW_DIRECTION, 0, 360).toFloat(),
+            styleInt(prefs, KEY_SHADOW_RADIUS_ENABLED, KEY_SHADOW_RADIUS, DEFAULT_SHADOW_RADIUS, 0, 12),
         )
         runCatching { windowManager.addView(view, params); lyricWindow = view }
             .onFailure { Log.w("LyricWindow", "overlay unavailable", it) }
@@ -1323,7 +1393,7 @@ class MainService : NotificationListenerService() {
     private fun topSettingPx(prefs: android.content.SharedPreferences): Int {
         val height = resources.displayMetrics.heightPixels.coerceAtLeast(1)
         val defaultTop = (statusBarHeight() - dp(20)).coerceAtLeast(0)
-        val percent = if (prefs.contains("overlay_top_percent_tenths")) {
+        val percent = if (prefs.getBoolean(KEY_TOP_ENABLED, false) && prefs.contains(KEY_TOP)) {
             prefs.getInt("overlay_top_percent_tenths", 0) / 10f
         } else if (prefs.contains("overlay_top_percent")) {
             prefs.getInt("overlay_top_percent", 0).toFloat()
@@ -1332,6 +1402,24 @@ class MainService : NotificationListenerService() {
             if (legacyDp >= 0) dp(legacyDp) * 100f / height else defaultTop * 100f / height
         }
         return (height * percent.coerceIn(0f, 10f) / 100f).roundToInt().coerceIn(0, height)
+    }
+
+    private fun styleInt(
+        prefs: android.content.SharedPreferences,
+        enabledKey: String,
+        valueKey: String,
+        default: Int,
+        min: Int,
+        max: Int,
+    ): Int = if (prefs.getBoolean(enabledKey, false)) {
+        prefs.getInt(valueKey, default).coerceIn(min, max)
+    } else {
+        default
+    }
+
+    private fun animationDuration(prefs: android.content.SharedPreferences): Int {
+        val value = styleInt(prefs, KEY_DURATION_ENABLED, KEY_DURATION, DEFAULT_DURATION, 50, 600)
+        return ((value + 25) / 50 * 50).coerceIn(50, 600)
     }
 
     private fun isMediaNotification(sbn: StatusBarNotification): Boolean {
@@ -1359,8 +1447,8 @@ class MainService : NotificationListenerService() {
     private fun overlayHorizontalBounds(prefs: android.content.SharedPreferences): Pair<Int, Int> {
         val screenWidth = resources.displayMetrics.widthPixels
         val screenWidthDp = (screenWidth / resources.displayMetrics.density).toInt()
-        val baseLeft = dp(prefs.getInt("overlay_left_dp", 12).coerceIn(0, 64))
-        val baseWidth = dp(prefs.getInt("overlay_width_dp", 236).coerceIn(100, screenWidthDp))
+        val baseLeft = dp(styleInt(prefs, KEY_LEFT_ENABLED, KEY_LEFT, DEFAULT_LEFT, 0, 64))
+        val baseWidth = dp(styleInt(prefs, KEY_WIDTH_ENABLED, KEY_WIDTH, DEFAULT_WIDTH, 100, screenWidthDp))
             .coerceAtMost(screenWidth - baseLeft)
         val count = otherNotificationCount()
         val firstShift = if (prefs.getBoolean("overlay_shift_on_notification", false)) prefs.getInt("overlay_shift_on_notification_dp", 0).coerceIn(0, 128) else 0
@@ -1389,11 +1477,15 @@ class MainService : NotificationListenerService() {
             params.y = top
             runCatching { windowManager.updateViewLayout(view, params) }
         }
-        view.setFontSize(prefs.getInt("overlay_font_sp", 13).coerceIn(10, 18).toFloat())
+        view.setFontSize(styleInt(prefs, KEY_FONT_ENABLED, KEY_FONT, DEFAULT_FONT, 10, 18).toFloat())
         view.setAnimation(
-            prefs.getInt("lyric_animation_angle", 180).coerceIn(0, 360).toFloat(),
-            prefs.getInt("lyric_animation_distance_dp", 32).coerceIn(8, 64),
-            prefs.getInt("lyric_animation_duration_ms", 280).coerceIn(100, 600),
+            styleInt(prefs, KEY_ANGLE_ENABLED, KEY_ANGLE, DEFAULT_ANGLE, 0, 360).toFloat(),
+            styleInt(prefs, KEY_DISTANCE_ENABLED, KEY_DISTANCE, DEFAULT_DISTANCE, 8, 64),
+            animationDuration(prefs),
+        )
+        view.setShadow(
+            styleInt(prefs, KEY_SHADOW_DIRECTION_ENABLED, KEY_SHADOW_DIRECTION, DEFAULT_SHADOW_DIRECTION, 0, 360).toFloat(),
+            styleInt(prefs, KEY_SHADOW_RADIUS_ENABLED, KEY_SHADOW_RADIUS, DEFAULT_SHADOW_RADIUS, 0, 12),
         )
     }
 
@@ -1405,7 +1497,9 @@ class MainService : NotificationListenerService() {
         private var fontSize = 13f
         private var animationAngle = 180f
         private var animationDistanceDp = 32
-        private var animationDurationMs = 280L
+        private var animationDurationMs = DEFAULT_DURATION.toLong()
+        private var shadowDirection = DEFAULT_SHADOW_DIRECTION.toFloat()
+        private var shadowRadiusDp = DEFAULT_SHADOW_RADIUS
         private var switchAnimator: AnimatorSet? = null
         private var scrollAnimator: ValueAnimator? = null
         private var scrollTarget = 0f
@@ -1427,7 +1521,7 @@ class MainService : NotificationListenerService() {
             gravity = Gravity.CENTER_VERTICAL or Gravity.START
             setSingleLine(true)
             fontFeatureSettings = "kern,halt"
-            setShadowLayer(3f, 0f, 1f, Color.BLACK)
+            applyShadow(this)
             typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
         }
 
@@ -1442,6 +1536,24 @@ class MainService : NotificationListenerService() {
             animationAngle = angle
             animationDistanceDp = distanceDp
             animationDurationMs = durationMs.toLong()
+        }
+
+        fun setShadow(direction: Float, radiusDp: Int) {
+            shadowDirection = direction
+            shadowRadiusDp = radiusDp
+            applyShadow(outgoing)
+            applyShadow(incoming)
+        }
+
+        private fun applyShadow(view: TextView) {
+            val radians = Math.toRadians(shadowDirection.toDouble())
+            val offset = dp(1).toFloat()
+            view.setShadowLayer(
+                dp(shadowRadiusDp).toFloat(),
+                (sin(radians) * offset).toFloat(),
+                (-cos(radians) * offset).toFloat(),
+                Color.BLACK,
+            )
         }
 
         fun setLyric(line: String, next: String, lineStartMs: Long = Long.MIN_VALUE) {
@@ -1459,6 +1571,7 @@ class MainService : NotificationListenerService() {
                 startSinglePassScroll(outgoing, line)
                 return
             }
+            val preservedScrollX = outgoing.translationX
             switchAnimator?.let {
                 it.cancel()
                 finishSwitch()
@@ -1490,7 +1603,7 @@ class MainService : NotificationListenerService() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     switchAnimator = null
                     finishSwitch()
-                    startSinglePassScroll(outgoing, current)
+                    startSinglePassScroll(outgoing, current, preservedScrollX)
                 }
                 override fun onAnimationCancel(animation: android.animation.Animator) { switchAnimator = null }
             })
@@ -1505,9 +1618,8 @@ class MainService : NotificationListenerService() {
             view.requestLayout()
         }
 
-        private fun startSinglePassScroll(view: TextView, text: String) {
+        private fun startSinglePassScroll(view: TextView, text: String, initialOffset: Float? = null) {
             cancelScroll()
-            view.translationX = 0f
             scrollTarget = 0f
             post {
                 if (outgoing !== view || current != text || visibility != View.VISIBLE) return@post
@@ -1515,8 +1627,10 @@ class MainService : NotificationListenerService() {
                 // 终点必须按 padding 后的容器宽度计算，否则文本会在右侧还剩一段时停止。
                 val contentWidth = (width - paddingLeft - paddingRight).coerceAtLeast(0)
                 val target = minOf(0f, contentWidth.toFloat() - view.paint.measureText(text))
+                val start = initialOffset?.coerceIn(target, 0f) ?: 0f
+                view.translationX = start
                 scrollTarget = target
-                if (target < 0f) animateScroll(view, 0f, target, true)
+                if (target < 0f && start > target) animateScroll(view, start, target, start == 0f)
             }
         }
 
