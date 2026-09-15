@@ -1599,7 +1599,6 @@ class MainService : NotificationListenerService() {
                 startSinglePassScroll(outgoing, line)
                 return
             }
-            val preservedScrollX = outgoing.translationX
             switchAnimator?.let {
                 it.cancel()
                 finishSwitch()
@@ -1631,7 +1630,7 @@ class MainService : NotificationListenerService() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     switchAnimator = null
                     finishSwitch()
-                    startSinglePassScroll(outgoing, current, preservedScrollX)
+                    startSinglePassScroll(outgoing, current)
                 }
                 override fun onAnimationCancel(animation: android.animation.Animator) { switchAnimator = null }
             })
@@ -1654,11 +1653,17 @@ class MainService : NotificationListenerService() {
                 // width 是窗口的总宽度，FrameLayout 两侧的 padding 不属于可见文本区域。
                 // 终点必须按 padding 后的容器宽度计算，否则文本会在右侧还剩一段时停止。
                 val contentWidth = (width - paddingLeft - paddingRight).coerceAtLeast(0)
-                val target = minOf(0f, contentWidth.toFloat() - view.paint.measureText(text))
+                val textWidth = view.paint.measureText(text)
+                if (textWidth <= contentWidth) {
+                    scrollTarget = 0f
+                    view.translationX = 0f
+                    return@post
+                }
+                val target = contentWidth.toFloat() - textWidth
                 val start = initialOffset?.coerceIn(target, 0f) ?: 0f
                 view.translationX = start
                 scrollTarget = target
-                if (target < 0f && start > target) animateScroll(view, start, target, start == 0f)
+                if (start > target) animateScroll(view, start, target, start == 0f)
             }
         }
 
