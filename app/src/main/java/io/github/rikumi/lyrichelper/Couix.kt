@@ -430,13 +430,17 @@ private fun CouixSinglePassMarqueeText(
             .clipToBounds()
             .onSizeChanged { containerWidthPx = it.width },
     ) {
+        val textModifier = if (textWidthPx > visibleWidthPx) {
+            Modifier.requiredWidth(
+                with(density) { textWidthPx.toDp() } + horizontalPadding * 2,
+            )
+        } else {
+            Modifier.fillMaxWidth()
+        }
         BasicText(
             text = text,
             style = style.copy(textAlign = if (textWidthPx > visibleWidthPx) TextAlign.Start else textAlign),
-            modifier = Modifier
-                .requiredWidth(
-                    with(density) { textWidthPx.toDp() } + horizontalPadding * 2,
-                )
+            modifier = textModifier
                 .padding(horizontal = horizontalPadding)
                 .offset { IntOffset(offset.value.roundToInt(), 0) },
             maxLines = 1,

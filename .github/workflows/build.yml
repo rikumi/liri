@@ -74,8 +74,16 @@ jobs:
           perl -0pi -e "s/versionCode \d+/versionCode $VERSION_CODE/; s/versionName '[0-9.]+'/versionName '$VERSION'/" app/build.gradle
           grep -E "versionCode|versionName" app/build.gradle
 
-      - name: Build debug APK
-        run: ./gradlew :app:assembleDebug
+      - name: Restore release keystore
+        env:
+          LIRI_KEYSTORE_BASE64: ${{ secrets.LIRI_KEYSTORE_BASE64 }}
+        run: echo "$LIRI_KEYSTORE_BASE64" | base64 --decode > release-key.jks
+
+      - name: Build signed release APK
+        env:
+          LIRI_KEYSTORE_PASSWORD: ${{ secrets.LIRI_KEYSTORE_PASSWORD }}
+          LIRI_KEY_PASSWORD: ${{ secrets.LIRI_KEY_PASSWORD }}
+        run: ./gradlew :app:assembleRelease
 
       - name: Commit version bump
         run: |
@@ -112,8 +120,8 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: liri-debug
-          path: app/build/outputs/apk/debug/*.apk
+          name: liri-release
+          path: app/build/outputs/apk/release/*.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -121,4 +129,4 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
           body: ${{ steps.changelog.outputs.body }}
-          files: app/build/outputs/apk/debug/*.apk
+          files: app/build/outputs/apk/release/*.apk

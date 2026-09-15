@@ -99,7 +99,7 @@ internal fun displaySongTitle(title: String, stripParentheses: Boolean): String 
 class MainService : NotificationListenerService() {
 
     var handler = Handler()
-    var currentMusic = ""
+    @Volatile var currentMusic = ""
     var currentMusicLyrics = SparseArray<String>()
     var isPlaying = false
 
@@ -330,6 +330,8 @@ class MainService : NotificationListenerService() {
         } ?: ""
         val title = prefs.getString("now_title", "")?.takeIf { it.isNotBlank() } ?: observedTitle
         val artist = prefs.getString("now_artist", "")?.takeIf { it.isNotBlank() } ?: observedArtist
+        val album = prefs.getString("now_album", "") ?: observedAlbum
+        val musicKey = currentMusic
         if (title.isBlank()) return
         if (url.isBlank()) {
             showSearchToast("未获取到专辑封面")
@@ -339,6 +341,8 @@ class MainService : NotificationListenerService() {
             url = url,
             title = title,
             artist = artist,
+            album = album,
+            musicKey = musicKey,
             saveToDisk = true,
             expandAfterLoad = true,
             onFailure = { showSearchToast("专辑封面下载失败") },
@@ -358,11 +362,12 @@ class MainService : NotificationListenerService() {
         val requestKey = "$title\u0000$artist\u0000$album\u0000$packageName"
         if (albumArtInFlightKey == requestKey) return
         albumArtInFlightKey = requestKey
+        val musicKey = currentMusic
         if (isQqMusicPackage(packageName)) {
-            requestQqAlbumCover("$title $artist", title, artist, album, currentMusic, true)
+            requestQqAlbumCover("$title $artist", title, artist, album, musicKey, true)
         } else {
             val query = URLEncoder.encode("$title $artist $album", "UTF-8")
-            cloudMusicRequest("/api/search/get?type=1&s=$query", currentMusic, preserveStateOnError = true) { response ->
+            cloudMusicRequest("/api/search/get?type=1&s=$query", musicKey, preserveStateOnError = true) { response ->
                 runCatching {
                     val songs = response.optJSONObject("result")?.optJSONArray("songs") ?: error("未找到歌曲")
                     val song = (0 until songs.length()).map { songs.getJSONObject(it) }.filter { value ->
@@ -379,7 +384,7 @@ class MainService : NotificationListenerService() {
                         cloudMusicRequest("/api/song/detail?ids=[$id]", currentMusic, preserveStateOnError = true) { detail ->
                             val cover = detail.optJSONArray("songs")?.optJSONObject(0)?.optJSONObject("album")
                                 ?.optString("picUrl")?.takeIf { it.isNotBlank() }?.replace("http://", "https://")
-                            if (cover != null) downloadCurrentAlbumArt(cover, title, artist) else albumArtInFlightKey = ""
+                            if (cover != null) downloadCurrentAlbumArt(cover, title, artist, album = album, musicKey = musicKey) else albumArtInFlightKey = ""
                         }
                     }
                 }.onFailure { albumArtInFlightKey = "" }
@@ -409,7 +414,7 @@ class MainService : NotificationListenerService() {
                         ?: song?.optString("albummid")?.takeIf { it.isNotBlank() }
                         ?: song?.optString("album_mid")?.takeIf { it.isNotBlank() }
                     if (albumMid == null) error("未找到专辑封面")
-                    downloadCurrentAlbumArt(qqAlbumCoverUrl(albumMid), title, artist)
+                    downloadCurrentAlbumArt(qqAlbumCoverUrl(albumMid), title, artist, album = album, musicKey = musicKey)
                 }
             }.onFailure { albumArtInFlightKey = "" }
         }, { _: com.android.volley.VolleyError -> albumArtInFlightKey = "" }) {
@@ -440,7 +445,7 @@ class MainService : NotificationListenerService() {
                     val cover = detail.optJSONObject("album")?.optString("picUrl")?.takeIf { it.isNotBlank() }
                         ?.replace("http://", "https://")
                         ?: match.optString("picUrl").takeIf { it.isNotBlank() }?.replace("http://", "https://")
-                    if (cover != null) downloadCurrentAlbumArt(cover, title, artist) else albumArtInFlightKey = ""
+                    if (cover != null) downloadCurrentAlbumArt(cover, title, artist, album = album, musicKey = musicKey) else albumArtInFlightKey = ""
                 }
             }.onFailure { albumArtInFlightKey = "" }
         }
@@ -450,31 +455,46 @@ class MainService : NotificationListenerService() {
         url: String,
         title: String,
         artist: String,
+        album: String = "",
+        musicKey: String = currentMusic,
         saveToDisk: Boolean = settingsPrefs().getBoolean("save_album_art_automatically", true),
         expandAfterLoad: Boolean = false,
         onFailure: () -> Unit = {},
     ) {
         val request = ImageRequest(url, { bitmap ->
             Thread {
+                val requestTrackKey = "$title\u0000$artist\u0000$album"
                 runCatching {
+                    if (!isCurrentAlbumArtTrack(title, artist, album, musicKey)) {
+                        if (albumArtInFlightKey == requestTrackKey) albumArtInFlightKey = ""
+                        return@runCatching
+                    }
                     val prefs = settingsPrefs()
                     val edit = prefs.edit().remove("now_cover")
+                    var savedFile: File? = null
                     if (saveToDisk) {
                         val directory = File("/sdcard/Music/Liri/.albumart")
                         check(directory.exists() || directory.mkdirs())
                         File(directory, ".nomedia").takeIf { !it.exists() }?.createNewFile()
                         val file = File(directory, "$title - $artist.png".replace(Regex("[\\\\/:*?\"<>|]"), "_"))
                         writeBitmapAtomically(bitmap, file)
+                        savedFile = file
                         edit.putString("now_cover", file.absolutePath)
-                    } else {
-                        CurrentAlbumArtMemory.put(title, artist, bitmap)
                     }
-                    edit.putLong("album_art_version", System.currentTimeMillis())
-                    if (expandAfterLoad) edit.putBoolean("show_large_now_playing", true)
-                    edit.apply()
-                    albumArtInFlightKey = ""
+                    handler.post {
+                        if (!isCurrentAlbumArtTrack(title, artist, album, musicKey)) {
+                            savedFile?.delete()
+                            if (albumArtInFlightKey == requestTrackKey) albumArtInFlightKey = ""
+                            return@post
+                        }
+                        if (!saveToDisk) CurrentAlbumArtMemory.put(title, artist, bitmap)
+                        edit.putLong("album_art_version", System.currentTimeMillis())
+                        if (expandAfterLoad) edit.putBoolean("show_large_now_playing", true)
+                        edit.apply()
+                        if (albumArtInFlightKey == requestTrackKey) albumArtInFlightKey = ""
+                    }
                 }.onFailure {
-                    albumArtInFlightKey = ""
+                    if (albumArtInFlightKey == requestTrackKey) albumArtInFlightKey = ""
                     handler.post(onFailure)
                 }
             }.start()
@@ -484,6 +504,14 @@ class MainService : NotificationListenerService() {
         })
         request.setShouldCache(false)
         queue.add(request)
+    }
+
+    private fun isCurrentAlbumArtTrack(title: String, artist: String, album: String, musicKey: String): Boolean {
+        val prefs = settingsPrefs()
+        return currentMusic == musicKey
+            && prefs.getString("now_title", "") == title
+            && prefs.getString("now_artist", "") == artist
+            && (album.isBlank() || prefs.getString("now_album", "") == album)
     }
 
     private fun writeBitmapAtomically(bitmap: Bitmap, target: File) {
