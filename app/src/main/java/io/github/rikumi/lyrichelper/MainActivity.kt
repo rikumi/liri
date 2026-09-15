@@ -126,7 +126,7 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
 private val homeExpandEasing = CubicBezierEasing(0.42f, 0f, 1f, 1f)
 private val homeCollapseEasing = CubicBezierEasing(0f, 0f, 0.58f, 1f)
 
-private enum class Page { HOME, PERMISSIONS, STYLE, EDITOR }
+private enum class Page { HOME, PERMISSIONS, STYLE, DISPLAY_SAVE, EDITOR }
 
 class MainActivity : ComponentActivity() {
     private var resumeToken by mutableIntStateOf(0)
@@ -177,25 +177,39 @@ private fun LiriNavigation(refreshToken: Int) {
         label = "page_transition",
     ) { currentPage ->
         when (currentPage) {
-            Page.HOME -> HomeScreen(onPermissions = { navigate(Page.PERMISSIONS) }, onStyle = { navigate(Page.STYLE) }, onEditor = { navigate(Page.EDITOR) })
+            Page.HOME -> HomeScreen(onPermissions = { navigate(Page.PERMISSIONS) }, onStyle = { navigate(Page.STYLE) }, onDisplaySave = { navigate(Page.DISPLAY_SAVE) }, onEditor = { navigate(Page.EDITOR) })
             Page.PERMISSIONS -> PermissionScreen(refreshToken) { navigate(Page.HOME) }
             Page.STYLE -> StyleScreen { navigate(Page.HOME) }
+            Page.DISPLAY_SAVE -> DisplaySaveScreen { navigate(Page.HOME) }
             Page.EDITOR -> LocalLrcEditorScreen { navigate(Page.HOME) }
         }
     }
 }
 
 @Composable
-private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onEditor: () -> Unit) {
+private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onDisplaySave: () -> Unit, onEditor: () -> Unit) {
     val context = LocalContext.current
     var player by remember { mutableStateOf(readPlayerSnapshot(context)) }
     var settingsExpanded by remember { mutableStateOf(true) }
+    val nowPlayingExpanded = !settingsExpanded
+    fun toggleHomeExpansion() {
+        val showLargeArtwork = settingsExpanded
+        settingsExpanded = !settingsExpanded
+        if (showLargeArtwork) {
+            context.startService(Intent(context, MainService::class.java).setAction(ACTION_ENSURE_CURRENT_ALBUM_ART))
+        }
+    }
+    LaunchedEffect(nowPlayingExpanded, player.title, player.artist, player.album, player.cover, player.playbackPackage) {
+        if (nowPlayingExpanded) {
+            context.startService(Intent(context, MainService::class.java).setAction(ACTION_ENSURE_CURRENT_ALBUM_ART))
+        }
+    }
     DisposableEffect(context) {
         val preferences = context.settingsPrefs()
         val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
             player = readPlayerSnapshot(context)
-            if (preferences.getBoolean("expand_now_playing", false)) {
-                preferences.edit().remove("expand_now_playing").apply()
+            if (preferences.getBoolean("show_large_now_playing", false)) {
+                preferences.edit().remove("show_large_now_playing").apply()
                 settingsExpanded = false
             }
         }
@@ -212,7 +226,7 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onEditor:
                 title = "Liri Lyrics",
                 dividerProgress = couixTopBarDividerProgress(listState, overscrollOffset),
                 actions = {
-                    top.yukonga.miuix.kmp.basic.IconButton(onClick = { settingsExpanded = !settingsExpanded }) {
+                    top.yukonga.miuix.kmp.basic.IconButton(onClick = ::toggleHomeExpansion) {
                         top.yukonga.miuix.kmp.basic.Icon(
                             imageVector = if (settingsExpanded) MiuixIcons.ExpandMore else MiuixIcons.ExpandLess,
                             contentDescription = if (settingsExpanded) "收起设置" else "展开设置",
@@ -239,15 +253,15 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onEditor:
                         CouixItemDivider()
                         CouixCategoryRow(MiuixIcons.Tune, "位置与样式", onStyle)
                         CouixItemDivider()
-                        LyricEditingFragment(player, context) {
-                            onEditor()
-                        }
+                        CouixCategoryRow(MiuixIcons.Download, "界面显示与保存", onDisplaySave)
+                        CouixItemDivider()
+                        LyricEditingFragment(player, context, onEditor)
                     }
                 }
             }
             item {
                 if (settingsExpanded) CouixSmallTitle("正在播放")
-                NowPlayingCard(player, settingsExpanded, onEditor) { settingsExpanded = !settingsExpanded }
+                NowPlayingCard(player, nowPlayingExpanded, onEditor, ::toggleHomeExpansion)
             }
             if (settingsExpanded) {
                 item {
@@ -272,7 +286,7 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onEditor:
 }
 
 private data class SearchResult(val id: Long, val key: String, val title: String, val artist: String, val album: String, val cover: String)
-private data class PlayerSnapshot(val title: String, val artist: String, val album: String, val cover: String?, val coverVersion: Long, val currentLyric: String, val nextLyric: String, val lyricProgress: Float, val lyricStartElapsed: Long, val lyricDurationMs: Long, val results: List<SearchResult>, val selectedId: Long, val autoSave: Boolean, val songOffsetMs: Int, val serviceStarted: Boolean, val localLrcExists: Boolean, val manualSearch: Boolean, val searchingLyrics: Boolean, val searchSource: String?, val playing: Boolean, val playbackPackage: String, val notificationIcon: String?, val notificationIconPackage: String, val previewLyric: String, val previewLyricVersion: Long, val previewCoverUrl: String, val albumArtVersion: Long, val playbackPositionMs: Long, val playbackUpdatedElapsed: Long)
+private data class PlayerSnapshot(val title: String, val artist: String, val album: String, val cover: String?, val coverVersion: Long, val currentLyric: String, val nextLyric: String, val lyricProgress: Float, val lyricStartElapsed: Long, val lyricDurationMs: Long, val results: List<SearchResult>, val selectedId: Long, val autoSave: Boolean, val saveAlbumArt: Boolean, val stripTitleParentheses: Boolean, val songOffsetMs: Int, val serviceStarted: Boolean, val localLrcExists: Boolean, val manualSearch: Boolean, val searchingLyrics: Boolean, val searchSource: String?, val playing: Boolean, val playbackPackage: String, val notificationIcon: String?, val notificationIconPackage: String, val previewLyric: String, val previewLyricVersion: Long, val previewCoverUrl: String, val albumArtVersion: Long, val playbackPositionMs: Long, val playbackUpdatedElapsed: Long)
 
 private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
     val prefs = context.settingsPrefs()
@@ -287,7 +301,8 @@ private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
         prefs.getString("now_title", "") ?: "",
         prefs.getString("now_artist", "") ?: "",
         prefs.getString("now_album", "") ?: "",
-        localAlbumArt(prefs.getString("now_title", "") ?: "", prefs.getString("now_artist", "") ?: "") ?: prefs.getString("now_cover", null),
+        localAlbumArt(prefs.getString("now_title", "") ?: "", prefs.getString("now_artist", "") ?: "")
+            ?: prefs.getString("now_cover", null)?.takeIf { File(it).isFile },
         maxOf(prefs.getLong("now_cover_version", 0L), prefs.getLong("album_art_version", 0L)),
         prefs.getString("now_lyric_current", "") ?: "",
         prefs.getString("now_lyric_next", "") ?: "",
@@ -297,6 +312,8 @@ private fun readPlayerSnapshot(context: Context): PlayerSnapshot {
         results,
         prefs.getLong("selected_lyric_id", -1L),
         prefs.getBoolean("save_lyrics_automatically", true),
+        prefs.getBoolean("save_album_art_automatically", true),
+        prefs.getBoolean("strip_title_parentheses", false),
         prefs.getInt("current_song_offset_ms", 0),
         prefs.getBoolean("service_started", false),
         localLrcExists(prefs.getString("now_title", "") ?: "", prefs.getString("now_artist", "") ?: ""),
@@ -337,11 +354,16 @@ private fun clearLocalLrc(title: String, artist: String): Result<Unit> = runCatc
 }
 
 @Composable
-private fun NowPlayingCard(player: PlayerSnapshot, settingsExpanded: Boolean, onEditor: () -> Unit, onToggleSettings: () -> Unit) {
+private fun NowPlayingCard(player: PlayerSnapshot, nowPlayingExpanded: Boolean, onEditor: () -> Unit, onToggleSettings: () -> Unit) {
     val context = LocalContext.current
     val playingHeaderBackground = Color.Black.copy(alpha = if (isSystemInDarkTheme()) 0.24f else 0.06f)
     val cover by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, player.cover, player.coverVersion) {
-        value = withContext(Dispatchers.IO) { player.cover?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() } }
+        value = withContext(Dispatchers.IO) {
+            player.cover?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
+                ?: CurrentAlbumArtMemory.bitmap
+                    ?.takeIf { CurrentAlbumArtMemory.matches(player.title, player.artist) }
+                    ?.asImageBitmap()
+        }
     }
     val playbackAppIcon by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, player.playbackPackage) {
         value = withContext(Dispatchers.IO) { loadApplicationIcon(context, player.playbackPackage) }
@@ -374,7 +396,7 @@ private fun NowPlayingCard(player: PlayerSnapshot, settingsExpanded: Boolean, on
                 .background(playingHeaderBackground),
         ) {
             AnimatedContent(
-                targetState = settingsExpanded,
+                targetState = nowPlayingExpanded,
                 transitionSpec = {
                     (fadeIn(tween(220, easing = homeExpandEasing)) + slideInVertically(tween(260, easing = homeExpandEasing)) { if (targetState) -it / 3 else it / 3 })
                         .togetherWith(fadeOut(tween(160, easing = homeCollapseEasing)) + slideOutVertically(tween(220, easing = homeCollapseEasing)) { if (targetState) it / 3 else -it / 3 })
@@ -382,24 +404,6 @@ private fun NowPlayingCard(player: PlayerSnapshot, settingsExpanded: Boolean, on
                 label = "now_playing_header_transition",
             ) { expanded ->
                 if (expanded) {
-                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        PlayingArtwork(
-                            cover,
-                            52.dp,
-                            Modifier.clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onToggleSettings,
-                            ),
-                        )
-                        Spacer(Modifier.width(14.dp))
-                        CouixPreferenceText(
-                            title = if (!player.serviceStarted && player.title.isBlank()) "等待服务启动…" else if (player.title.isBlank()) "未检测到正在播放" else player.title,
-                            subtitle = if (!player.serviceStarted) "等待服务启动…" else formatArtistAlbum(player.artist, player.album),
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                } else {
                     Column(
                         modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 16.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -418,15 +422,33 @@ private fun NowPlayingCard(player: PlayerSnapshot, settingsExpanded: Boolean, on
                         )
                         Spacer(Modifier.height(12.dp))
                         CouixPreferenceText(
-                            title = if (!player.serviceStarted && player.title.isBlank()) "等待服务启动…" else if (player.title.isBlank()) "未检测到正在播放" else player.title,
+                            title = if (!player.serviceStarted && player.title.isBlank()) "等待服务启动…" else if (player.title.isBlank()) "未检测到正在播放" else displaySongTitle(player.title, player.stripTitleParentheses),
                             subtitle = if (!player.serviceStarted) "等待服务启动…" else formatArtistAlbum(player.artist, player.album),
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         )
                     }
+                } else {
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        PlayingArtwork(
+                            cover,
+                            52.dp,
+                            Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onToggleSettings,
+                            ),
+                        )
+                        Spacer(Modifier.width(14.dp))
+                        CouixPreferenceText(
+                            title = if (!player.serviceStarted && player.title.isBlank()) "等待服务启动…" else if (player.title.isBlank()) "未检测到正在播放" else displaySongTitle(player.title, player.stripTitleParentheses),
+                            subtitle = if (!player.serviceStarted) "等待服务启动…" else formatArtistAlbum(player.artist, player.album),
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
-            if (!settingsExpanded) {
+            if (nowPlayingExpanded) {
                 Box(
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 10.dp),
                     contentAlignment = Alignment.Center,
@@ -448,16 +470,16 @@ private fun NowPlayingCard(player: PlayerSnapshot, settingsExpanded: Boolean, on
                 contentHorizontalPadding = 16.dp,
                 animateProgress = false,
                 compressPunctuation = true,
-                textAlign = if (settingsExpanded) TextAlign.Start else TextAlign.Center,
+                textAlign = if (nowPlayingExpanded) TextAlign.Center else TextAlign.Start,
                 modifier = Modifier
                     .requiredHeight(76.dp)
                     .padding(top = 8.dp, bottom = 16.dp),
             )
         }
-        if (settingsExpanded) SongOffsetControl(player)
+        if (!nowPlayingExpanded) SongOffsetControl(player)
         Box(modifier = Modifier.fillMaxWidth().offset(y = (-4).dp)) {
             MainPlaybackControl(player)
-            if (!settingsExpanded) {
+            if (nowPlayingExpanded) {
                 if (playbackIcon != null) {
                     Box(
                         modifier = Modifier
@@ -618,13 +640,6 @@ private fun SongOffsetControl(player: PlayerSnapshot) {
 
 @Composable
 private fun LyricEditingFragment(player: PlayerSnapshot, context: Context, onEditor: () -> Unit) {
-    CouixSwitchPreference(
-        checked = player.autoSave,
-        onCheckedChange = { setBool(context, "save_lyrics_automatically", it) },
-        title = "保存自动搜索的歌词文件",
-        leadingIcon = MiuixIcons.Download,
-    )
-    CouixItemDivider()
     var showClearDialog by remember { mutableStateOf(false) }
     CouixActionPairRow(
         leftTitle = "编辑本地歌词",
@@ -652,6 +667,59 @@ private fun LyricEditingFragment(player: PlayerSnapshot, context: Context, onEdi
             },
             onDismiss = { showClearDialog = false },
         )
+    }
+}
+
+@Composable
+private fun DisplaySaveScreen(onBack: () -> Unit) {
+    val context = LocalContext.current
+    val prefs = remember { context.settingsPrefs() }
+    var saveLyrics by remember { mutableStateOf(prefs.getBoolean("save_lyrics_automatically", true)) }
+    var saveAlbumArt by remember { mutableStateOf(prefs.getBoolean("save_album_art_automatically", true)) }
+    var stripTitleParentheses by remember { mutableStateOf(prefs.getBoolean("strip_title_parentheses", false)) }
+    val listState = rememberLazyListState()
+    Scaffold(
+        containerColor = MiuixTheme.colorScheme.surface,
+        contentWindowInsets = WindowInsets(0.dp),
+        topBar = {
+            CouixTopAppBar("界面显示与保存", dividerProgress = couixTopBarDividerProgress(listState), navigationIcon = { CouixBackButton(onBack) })
+        },
+    ) { padding ->
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding).couixOverscroll(listState),
+        ) {
+            item {
+                CouixCard {
+                    CouixSwitchPreference(
+                        checked = stripTitleParentheses,
+                        onCheckedChange = {
+                            stripTitleParentheses = it
+                            setBool(context, "strip_title_parentheses", it)
+                        },
+                        title = "界面显示时去除标题括号",
+                    )
+                    CouixItemDivider()
+                    CouixSwitchPreference(
+                        checked = saveLyrics,
+                        onCheckedChange = {
+                            saveLyrics = it
+                            setBool(context, "save_lyrics_automatically", it)
+                        },
+                        title = "保存自动搜索的歌词文件",
+                    )
+                    CouixItemDivider()
+                    CouixSwitchPreference(
+                        checked = saveAlbumArt,
+                        onCheckedChange = {
+                            saveAlbumArt = it
+                            setBool(context, "save_album_art_automatically", it)
+                        },
+                        title = "保存自动匹配的专辑封面",
+                    )
+                }
+            }
+        }
     }
 }
 
