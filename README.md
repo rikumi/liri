@@ -4,7 +4,7 @@
 
 更好的状态栏歌词
 
-Liri 通过系统通知读取权限和悬浮窗，在左上角显示当前音乐的歌词。应用界面和设置页使用基于 Miuix 的 Couix 的组件，支持浅色和深色主题，并采用青绿色作为主题色。
+Liri 通过系统通知读取权限和悬浮窗，在左上角显示当前音乐的歌词。应用界面和设置页使用COUI 组件，支持浅色和深色主题，并采用橘黄色作为主题色。
 
 ## 功能
 
@@ -106,8 +106,8 @@ Liri 通过系统通知读取权限和悬浮窗，在左上角显示当前音乐
 
 - Android Gradle Plugin 9.1.0
 - Gradle 9.3.1
-- Kotlin 2.2.21
-- Compose UI 和 Couix/Miuix 组件
+- Kotlin 2.4.10
+- Compose UI 和 COUI 1.1.0 组件
 - compileSdk 37
 - minSdk 26
 

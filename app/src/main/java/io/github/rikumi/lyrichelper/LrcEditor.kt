@@ -67,25 +67,23 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import top.yukonga.miuix.kmp.icon.extended.Redo
-import top.yukonga.miuix.kmp.icon.extended.Undo
+import io.github.suqi8.coui.kmp.icon.extended.Redo
+import io.github.suqi8.coui.kmp.icon.extended.Undo
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import kotlinx.coroutines.delay
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Add
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.ChevronForward
-import top.yukonga.miuix.kmp.icon.extended.Folder
-import top.yukonga.miuix.kmp.icon.extended.Pause
-import top.yukonga.miuix.kmp.icon.extended.Play
-import top.yukonga.miuix.kmp.icon.extended.Replace
-import top.yukonga.miuix.kmp.icon.extended.Tune
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import io.github.suqi8.coui.kmp.basic.Scaffold
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Add
+import io.github.suqi8.coui.kmp.icon.extended.ChevronBackward
+import io.github.suqi8.coui.kmp.icon.extended.ChevronForward
+import io.github.suqi8.coui.kmp.icon.extended.Folder
+import io.github.suqi8.coui.kmp.icon.extended.Pause
+import io.github.suqi8.coui.kmp.icon.extended.Play
+import io.github.suqi8.coui.kmp.icon.extended.Replace
+import io.github.suqi8.coui.kmp.icon.extended.Tune
+import io.github.suqi8.coui.kmp.theme.COUITheme
 
 private val editorTimeTag = Regex("\\[\\d{1,3}:\\d{1,2}(?:[.:]\\d{1,3})?\\]")
 private val editorLeadingTimeTags = Regex("^(?:\\[\\d{1,3}:\\d{1,2}(?:[.:]\\d{1,3})?\\])+")
@@ -239,29 +237,29 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
         }
     }
     Scaffold(
-        containerColor = MiuixTheme.colorScheme.surface,
+        containerColor = COUITheme.colorScheme.surface,
         topBar = {
-            Column(modifier = Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surface)) {
-                CouixTopAppBar(
+            Column(modifier = Modifier.fillMaxWidth().background(COUITheme.colorScheme.surface)) {
+                SettingsTopAppBar(
                 fileName,
-                navigationIcon = { CouixBackButton(::requestExit) },
+                navigationIcon = { SettingsBackButton(::requestExit) },
                 actions = {
                     val canUndo = undoStack.isNotEmpty()
                     val canRedo = redoStack.isNotEmpty()
-                    top.yukonga.miuix.kmp.basic.IconButton(onClick = ::undo, enabled = canUndo) {
-                        top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Undo, contentDescription = "撤销", tint = MiuixTheme.colorScheme.onSurface.copy(alpha = if (canUndo) 1f else 0.38f), modifier = Modifier.size(22.dp))
+                    io.github.suqi8.coui.kmp.basic.IconButton(onClick = ::undo, enabled = canUndo) {
+                        io.github.suqi8.coui.kmp.basic.Icon(COUIIcons.Undo, contentDescription = "撤销", tint = COUITheme.colorScheme.onSurface.copy(alpha = if (canUndo) 1f else 0.38f), modifier = Modifier.size(22.dp))
                     }
-                    top.yukonga.miuix.kmp.basic.IconButton(onClick = ::redo, enabled = canRedo) {
-                        top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Redo, contentDescription = "重做", tint = MiuixTheme.colorScheme.onSurface.copy(alpha = if (canRedo) 1f else 0.38f), modifier = Modifier.size(22.dp))
+                    io.github.suqi8.coui.kmp.basic.IconButton(onClick = ::redo, enabled = canRedo) {
+                        io.github.suqi8.coui.kmp.basic.Icon(COUIIcons.Redo, contentDescription = "重做", tint = COUITheme.colorScheme.onSurface.copy(alpha = if (canRedo) 1f else 0.38f), modifier = Modifier.size(22.dp))
                     }
                 },
                 )
             val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
             val barContentColor = if (darkTheme) Color.White else Color(0xFF212121)
             val trackColor = barContentColor.copy(alpha = 0.16f)
-            val progressColor = MiuixTheme.colorScheme.primary
+            val progressColor = COUITheme.colorScheme.primary
             val progressTextColor = barContentColor.copy(alpha = 0.58f)
-            Column(modifier = Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surface)) {
+            Column(modifier = Modifier.fillMaxWidth().background(COUITheme.colorScheme.surface)) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.SpaceEvenly,
@@ -270,13 +268,13 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
                     EditorTransportButton(MATERIAL_ICON_REPLAY_10, "向后 10 秒", Modifier.size(48.dp), 28.sp) {
                         context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SEEK_BACKWARD))
                     }
-                    EditorTransportIconButton(MiuixIcons.ChevronBackward, "上一曲", Modifier.size(48.dp).offset(y = (-4).dp), 22.dp) {
+                    EditorTransportIconButton(COUIIcons.ChevronBackward, "上一曲", Modifier.size(48.dp).offset(y = (-4).dp), 22.dp) {
                         requestSaveThen({ context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SKIP_PREVIOUS)) }, discardWhenDismissed = true)
                     }
-                    EditorTransportIconButton(if (playing) MiuixIcons.Pause else MiuixIcons.Play, if (playing) "暂停" else "播放", Modifier.size(48.dp).offset(y = (-4).dp), 22.dp) {
+                    EditorTransportIconButton(if (playing) COUIIcons.Pause else COUIIcons.Play, if (playing) "暂停" else "播放", Modifier.size(48.dp).offset(y = (-4).dp), 22.dp) {
                         context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_TOGGLE_PLAYBACK))
                     }
-                    EditorTransportIconButton(MiuixIcons.ChevronForward, "下一曲", Modifier.size(48.dp).offset(y = (-4).dp), 22.dp) {
+                    EditorTransportIconButton(COUIIcons.ChevronForward, "下一曲", Modifier.size(48.dp).offset(y = (-4).dp), 22.dp) {
                         requestSaveThen({ context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SKIP_NEXT)) }, discardWhenDismissed = true)
                     }
                     EditorTransportButton(MATERIAL_ICON_FORWARD_10, "向前 10 秒", Modifier.size(48.dp), 28.sp) {
@@ -286,12 +284,12 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp)) {
                     BasicText(
                         editorTimeLabel(positionMs),
-                        style = MiuixTheme.textStyles.body2.copy(fontFamily = mapleMono, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
+                        style = COUITheme.textStyles.body2.copy(fontFamily = mapleMono, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
                         modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
                     )
                     BasicText(
                         editorTimeLabel(durationMs),
-                        style = MiuixTheme.textStyles.body2.copy(fontFamily = mapleMono, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
+                        style = COUITheme.textStyles.body2.copy(fontFamily = mapleMono, fontSize = 9.sp, letterSpacing = 0.sp, color = progressTextColor),
                         modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
                     )
                     Canvas(Modifier.fillMaxWidth().height(1.dp).align(Alignment.BottomCenter)) {
@@ -310,8 +308,8 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
             Column(modifier = Modifier.fillMaxWidth().background(barColor).navigationBarsPadding().imePadding()) {
                 Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(toolbarDividerColor))
                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    EditorAction("替换标签", { top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Replace, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) { applyEdit(editorReplace(value, positionMs)) }
-                    EditorAction("添加标签", { top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Add, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) { applyEdit(editorInsert(value, positionMs)) }
+                    EditorAction("替换标签", { io.github.suqi8.coui.kmp.basic.Icon(COUIIcons.Replace, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) { applyEdit(editorReplace(value, positionMs)) }
+                    EditorAction("添加标签", { io.github.suqi8.coui.kmp.basic.Icon(COUIIcons.Add, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) { applyEdit(editorInsert(value, positionMs)) }
                     EditorAction("删除标签", { EditorDeleteIcon() }, imeVisible) { applyEdit(editorDelete(value)) }
                     EditorBatchAction(
                         showLabel = !imeVisible,
@@ -334,7 +332,7 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
                         onRemoveParentheticalAnnotations = { applyEdit(editorRemoveParentheticalAnnotations(value)) },
                         onFindReplace = { showFindReplaceDialog = true },
                     )
-                    EditorAction("保存", { top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Folder, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) {
+                    EditorAction("保存", { io.github.suqi8.coui.kmp.basic.Icon(COUIIcons.Folder, null, tint = barContentColor, modifier = Modifier.size(22.dp)) }, imeVisible) {
                         runCatching {
                             saveFile()
                         }
@@ -343,9 +341,9 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
             }
         },
     ) { padding ->
-        val accent = MiuixTheme.colorScheme.primary
+        val accent = COUITheme.colorScheme.primary
         val currentLineStart = editorCurrentLineStart(value.text, positionMs)
-        Box(modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding)) {
+        Box(modifier = Modifier.fillMaxSize().background(COUITheme.colorScheme.surface).padding(padding)) {
             Canvas(Modifier.fillMaxSize()) {
                 currentLineStart?.let { start ->
                     editorTextLayout?.let { layout ->
@@ -372,7 +370,7 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
                     .verticalScroll(editorScrollState)
                     .padding(16.dp)
                     .onGloballyPositioned { editorTextTopPx = it.positionInParent().y },
-                textStyle = MiuixTheme.textStyles.body2.copy(fontFamily = mapleMono, fontFeatureSettings = "kern", letterSpacing = 0.sp, color = MiuixTheme.colorScheme.onSurface, lineHeight = 20.sp),
+                textStyle = COUITheme.textStyles.body2.copy(fontFamily = mapleMono, fontFeatureSettings = "kern", letterSpacing = 0.sp, color = COUITheme.colorScheme.onSurface, lineHeight = 20.sp),
                 visualTransformation = remember(accent, currentLineStart) { EditorLrcVisualTransformation(accent, currentLineStart) },
                 cursorBrush = SolidColor(accent),
                 onTextLayout = { editorTextLayout = it },
@@ -380,7 +378,7 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
         }
     }
     if (showSaveDialog) {
-        CouixConfirmDialog(
+        SettingsConfirmDialog(
             title = "保存歌词",
             text = "歌词已修改，是否保存？",
             confirmLabel = "保存",
@@ -422,19 +420,19 @@ internal fun LocalLrcEditorScreen(onBack: () -> Unit) {
 @Composable
 private fun EditorAction(description: String, icon: @Composable () -> Unit, hideLabel: Boolean, onClick: () -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        top.yukonga.miuix.kmp.basic.IconButton(onClick = onClick) {
+        io.github.suqi8.coui.kmp.basic.IconButton(onClick = onClick) {
             Box(modifier = Modifier.size(22.dp), contentAlignment = Alignment.Center) { icon() }
         }
-        if (!hideLabel) BasicText(description, style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, color = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121)))
+        if (!hideLabel) BasicText(description, style = COUITheme.textStyles.body2.copy(fontSize = 12.sp, color = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121)))
     }
 }
 
 @Composable
 private fun EditorTransportButton(icon: String, description: String, modifier: Modifier = Modifier, iconSize: androidx.compose.ui.unit.TextUnit = 30.sp, onClick: () -> Unit) {
-    top.yukonga.miuix.kmp.basic.IconButton(onClick = onClick, modifier = modifier) {
+    io.github.suqi8.coui.kmp.basic.IconButton(onClick = onClick, modifier = modifier) {
         BasicText(
             text = icon,
-            style = MiuixTheme.textStyles.body1.copy(
+            style = COUITheme.textStyles.body1.copy(
                 fontFamily = materialSymbolsRounded,
                 fontSize = iconSize,
                 color = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121),
@@ -453,8 +451,8 @@ private fun EditorTransportIconButton(
     iconSize: androidx.compose.ui.unit.Dp = 34.dp,
     onClick: () -> Unit,
 ) {
-    top.yukonga.miuix.kmp.basic.IconButton(onClick = onClick, modifier = modifier) {
-        top.yukonga.miuix.kmp.basic.Icon(
+    io.github.suqi8.coui.kmp.basic.IconButton(onClick = onClick, modifier = modifier) {
+        io.github.suqi8.coui.kmp.basic.Icon(
             imageVector = icon,
             contentDescription = description,
             tint = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121),
@@ -500,45 +498,30 @@ private fun EditorBatchAction(
     onRemoveParentheticalAnnotations: () -> Unit,
     onFindReplace: () -> Unit,
 ) {
-    val batchMenuLiftPx = with(LocalDensity.current) { 12.dp.roundToPx() }
     var expanded by remember { mutableStateOf(false) }
-    var popupVisible by remember { mutableStateOf(false) }
-    var anchorHeightPx by remember { mutableIntStateOf(0) }
-    LaunchedEffect(expanded) {
-        if (expanded) popupVisible = true else {
-            delay(220)
-            popupVisible = false
-        }
-    }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        top.yukonga.miuix.kmp.basic.IconButton(onClick = { expanded = !expanded }, modifier = Modifier.onGloballyPositioned { anchorHeightPx = it.size.height }) {
-            top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.Tune, contentDescription = "格式化", tint = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121), modifier = Modifier.size(22.dp))
+        io.github.suqi8.coui.kmp.basic.IconButton(onClick = { expanded = !expanded }) {
+            io.github.suqi8.coui.kmp.basic.Icon(COUIIcons.Tune, contentDescription = "格式化", modifier = Modifier.size(22.dp))
         }
-        if (showLabel) BasicText("批量操作", style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, color = if (androidx.compose.foundation.isSystemInDarkTheme()) Color.White else Color(0xFF212121)))
-        CouixDropdownPopup(
-            expanded = popupVisible,
-            anchorHeightPx = anchorHeightPx,
-            extraOffsetYPx = batchMenuLiftPx,
-            onDismissRequest = { expanded = false },
-        ) {
-            CouixDropdownItem("格式化歌词", selected = false, onClick = { expanded = false; onFormat() })
-            CouixDropdownDivider()
-            CouixDropdownItem("清除所有标签", selected = false, onClick = { expanded = false; onClearAllTags() })
-            CouixDropdownDivider()
-            CouixDropdownItem("去空行", selected = false, onClick = { expanded = false; onRemoveEmptyLines() })
-            CouixDropdownDivider()
-            CouixDropdownItem("全角空格转半角", selected = false, onClick = { expanded = false; onConvertFullWidthSpaces() })
-            CouixDropdownDivider()
-            CouixDropdownItem("去除括号标注", selected = false, onClick = { expanded = false; onRemoveParentheticalAnnotations() })
-            CouixDropdownDivider()
-            CouixDropdownItem("查找替换", selected = false, onClick = { expanded = false; onFindReplace() })
-            CouixDropdownDivider()
-            CouixDropdownItem("简→繁", selected = false, onClick = { expanded = false; onSimplifiedToTraditional() })
-            CouixDropdownDivider()
-            CouixDropdownItem("繁→简", selected = false, onClick = { expanded = false; onTraditionalToSimplified() })
-            CouixDropdownDivider()
-            CouixDropdownItem("简→日", selected = false, onClick = { expanded = false; onSimplifiedToJapanese() })
-        }
+        if (showLabel) BasicText("批量操作", style = COUITheme.textStyles.body2.copy(fontSize = 12.sp, color = COUITheme.colorScheme.onSurface))
+        io.github.suqi8.coui.kmp.popup.WindowDropdownPopup(
+            entry = io.github.suqi8.coui.kmp.basic.DropdownEntry(listOf(
+                "格式化歌词" to onFormat,
+                "清除所有标签" to onClearAllTags,
+                "去空行" to onRemoveEmptyLines,
+                "全角空格转半角" to onConvertFullWidthSpaces,
+                "去除括号标注" to onRemoveParentheticalAnnotations,
+                "查找替换" to onFindReplace,
+                "简→繁" to onSimplifiedToTraditional,
+                "繁→简" to onTraditionalToSimplified,
+                "简→日" to onSimplifiedToJapanese,
+            ).map { (label, action) ->
+                io.github.suqi8.coui.kmp.basic.DropdownItem(text = label, onClick = { expanded = false; action() })
+            }),
+            show = expanded, onDismiss = { expanded = false }, onDismissFinished = {},
+            maxHeight = null,
+            dropdownColors = io.github.suqi8.coui.kmp.basic.DropdownDefaults.dropdownColors(),
+        )
     }
 }
 
@@ -583,100 +566,20 @@ private fun EditorFindReplaceDialog(
 ) {
     var find by remember { mutableStateOf("") }
     var replacement by remember { mutableStateOf("") }
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    var visible by remember { mutableStateOf(true) }
+    var confirmed by remember { mutableStateOf(false) }
+    io.github.suqi8.coui.kmp.window.WindowDialog(
+        show = visible, title = "查找替换", onDismissRequest = { visible = false },
+        onDismissFinished = { if (confirmed) onConfirm(find, replacement) else onDismiss() },
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp)
-                .navigationBarsPadding(),
-            contentAlignment = Alignment.BottomCenter,
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(MiuixTheme.colorScheme.surfaceContainer),
-            ) {
-                BasicText(
-                    text = "查找替换",
-                    style = MiuixTheme.textStyles.body1.copy(
-                        color = MiuixTheme.colorScheme.onSurface,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 18.sp,
-                        textAlign = TextAlign.Center,
-                    ),
-                    modifier = Modifier.fillMaxWidth().padding(top = 22.dp, start = 24.dp, end = 24.dp),
-                )
-                BasicText(
-                    text = "查找串",
-                    style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.onSurfaceVariantSummary),
-                    modifier = Modifier.padding(start = 24.dp, top = 18.dp, end = 24.dp),
-                )
-                BasicTextField(
-                    value = find,
-                    onValueChange = { find = it },
-                    textStyle = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurface, fontSize = 17.sp),
-                    singleLine = true,
-                    cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 24.dp, top = 6.dp, end = 24.dp)
-                        .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-                        .padding(12.dp),
-                )
-                BasicText(
-                    text = "替换串（可为空）",
-                    style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.onSurfaceVariantSummary),
-                    modifier = Modifier.padding(start = 24.dp, top = 14.dp, end = 24.dp),
-                )
-                BasicTextField(
-                    value = replacement,
-                    onValueChange = { replacement = it },
-                    textStyle = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurface, fontSize = 17.sp),
-                    singleLine = true,
-                    cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 24.dp, top = 6.dp, end = 24.dp)
-                        .background(MiuixTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-                        .padding(12.dp),
-                )
-                Spacer(modifier = Modifier.height(32.dp))
-                Row(modifier = Modifier.fillMaxWidth().height(60.dp)) {
-                    Box(
-                        modifier = Modifier.weight(1f).fillMaxSize().clickable { onDismiss() },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        BasicText(
-                            text = "取消",
-                            style = MiuixTheme.textStyles.body2.copy(
-                                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                                fontSize = 17.sp,
-                            ),
-                        )
-                    }
-                    Box(
-                        modifier = Modifier.width(1.dp).height(20.dp).align(Alignment.CenterVertically).background(MiuixTheme.colorScheme.outline),
-                    )
-                    Box(
-                        modifier = Modifier.weight(1f).fillMaxSize().clickable { onConfirm(find, replacement) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        BasicText(
-                            text = "确认",
-                            style = MiuixTheme.textStyles.body2.copy(
-                                color = MiuixTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 17.sp,
-                            ),
-                        )
-                    }
-                }
-            }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            io.github.suqi8.coui.kmp.basic.TextField(value = find, onValueChange = { find = it }, label = "查找串")
+            io.github.suqi8.coui.kmp.basic.TextField(value = replacement, onValueChange = { replacement = it }, label = "替换串（可为空）")
         }
+        io.github.suqi8.coui.kmp.layout.DialogButtonBar(
+            negative = io.github.suqi8.coui.kmp.layout.DialogButtonBarAction(text = "取消", enabled = visible, onClick = { visible = false }),
+            positive = io.github.suqi8.coui.kmp.layout.DialogButtonBarAction(text = "确认", enabled = visible && find.isNotEmpty(), onClick = { confirmed = true; visible = false }),
+        )
     }
 }
 

@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.Settings
 import android.os.Handler
+import android.os.Looper
 import android.os.IBinder
 import android.os.SystemClock
 import android.graphics.Color
@@ -98,7 +99,8 @@ internal fun displaySongTitle(title: String, stripParentheses: Boolean): String 
 
 class MainService : NotificationListenerService() {
 
-    var handler = Handler()
+    // 避免生成 getHandler()，与新版 NotificationListenerService 的 final 方法冲突。
+    private val mainHandler = Handler(Looper.getMainLooper())
     @Volatile var currentMusic = ""
     var currentMusicLyrics = SparseArray<String>()
     var isPlaying = false
@@ -133,7 +135,7 @@ class MainService : NotificationListenerService() {
         val overlaySettingChanged = key?.startsWith("overlay_") == true || key?.startsWith("lyric_animation_") == true
         val searchRequested = key == "lyric_search_requested" && settingsPrefs().getBoolean("lyric_search_requested", false)
         if (searchRequested || overlaySettingChanged || key == "current_song_offset_ms" || key == "selected_lyric_id" || key == "lyric_selection_manual") {
-            handler.post {
+            mainHandler.post {
                 if (searchRequested) {
                     settingsPrefs().edit().putBoolean("lyric_search_requested", false).apply()
                     searchCurrentSongLyrics()
@@ -171,24 +173,24 @@ class MainService : NotificationListenerService() {
     }
     private val mediaControllerCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) {
-            handler.post { update() }
+            mainHandler.post { update() }
             val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)?.takeIf { it.isNotBlank() } ?: return
             if (title != observedTitle) return
             val cover = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                 ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
             if (cover != null) {
-                handler.post { publishPlayer(observedTitle, observedArtist, observedAlbum, null, cover) }
+                mainHandler.post { publishPlayer(observedTitle, observedArtist, observedAlbum, null, cover) }
             }
         }
 
         override fun onPlaybackStateChanged(state: android.media.session.PlaybackState?) {
             val title = observedTitle
             if (title.isBlank()) return
-            handler.post {
+            mainHandler.post {
                 isPlaying = state?.state == STATE_PLAYING
                 publishPlaybackState(state)
                 if (!isPlaying) {
-                    lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
+                    lyricBoundaryRunnable?.let { mainHandler.removeCallbacks(it) }
                     lyricBoundaryRunnable = null
                     lyricWindow?.hideLyric(clearCurrent = false)
                 } else {
@@ -233,14 +235,14 @@ class MainService : NotificationListenerService() {
         observedController?.unregisterCallback(mediaControllerCallback)
         settingsPrefs().edit().putBoolean("service_started", false).apply()
         settingsPrefs().unregisterOnSharedPreferenceChangeListener(settingsChangeListener)
-        lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
+        lyricBoundaryRunnable?.let { mainHandler.removeCallbacks(it) }
         lyricBoundaryRunnable = null
-        editorPauseRunnable?.let { handler.removeCallbacks(it) }
+        editorPauseRunnable?.let { mainHandler.removeCallbacks(it) }
         editorPauseRunnable = null
         observedController = null
         lyricWindow?.let { runCatching { windowManager.removeView(it) } }
         lyricWindow = null
-        handler.removeCallbacksAndMessages(null)
+        mainHandler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
 
@@ -277,7 +279,7 @@ class MainService : NotificationListenerService() {
             }
             ACTION_EDITOR_STOP -> {
                 settingsPrefs().edit().putBoolean("editor_active", false).apply()
-                editorPauseRunnable?.let { handler.removeCallbacks(it) }
+                editorPauseRunnable?.let { mainHandler.removeCallbacks(it) }
                 editorPauseRunnable = null
             }
             ACTION_EDITOR_TOGGLE_PLAYBACK -> {
@@ -481,7 +483,7 @@ class MainService : NotificationListenerService() {
                         savedFile = file
                         edit.putString("now_cover", file.absolutePath)
                     }
-                    handler.post {
+                    mainHandler.post {
                         if (!isCurrentAlbumArtTrack(title, artist, album, musicKey)) {
                             savedFile?.delete()
                             if (albumArtInFlightKey == requestTrackKey) albumArtInFlightKey = ""
@@ -495,7 +497,7 @@ class MainService : NotificationListenerService() {
                     }
                 }.onFailure {
                     if (albumArtInFlightKey == requestTrackKey) albumArtInFlightKey = ""
-                    handler.post(onFailure)
+                    mainHandler.post(onFailure)
                 }
             }.start()
         }, 0, 0, ImageView.ScaleType.CENTER_CROP, Bitmap.Config.ARGB_8888, {
@@ -562,7 +564,7 @@ class MainService : NotificationListenerService() {
     )
 
     private fun scheduleEditorPause() {
-        editorPauseRunnable?.let { handler.removeCallbacks(it) }
+        editorPauseRunnable?.let { mainHandler.removeCallbacks(it) }
         editorPauseRunnable = null
         val prefs = settingsPrefs()
         if (!prefs.getBoolean("editor_active", false)) return
@@ -580,28 +582,28 @@ class MainService : NotificationListenerService() {
             ) latest.transportControls.pause()
         }
         editorPauseRunnable = runnable
-        handler.postDelayed(runnable, (duration - state.position - 1500L).coerceAtLeast(0L))
+        mainHandler.postDelayed(runnable, (duration - state.position - 1500L).coerceAtLeast(0L))
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         sbn?.let(::cacheNotificationIcon)
-        handler.postDelayed({ update() }, 80L)
+        mainHandler.postDelayed({ update() }, 80L)
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         super.onNotificationRemoved(sbn)
         // activeNotifications 在移除回调返回前可能仍包含旧列表，稍后再读取以得到最新数量。
-        handler.postDelayed({ update() }, 80L)
+        mainHandler.postDelayed({ update() }, 80L)
     }
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        handler.post { update() }
+        mainHandler.post { update() }
         // 服务刚连接时，系统可能还未完成媒体会话和通知列表的恢复；
         // 已在播放的歌曲未必会再次发送状态变化，因此只在启动阶段补几次短重试。
         listOf(300L, 1000L, 2000L, 4000L, 8000L).forEach { delayMs ->
-            handler.postDelayed({ update() }, delayMs)
+            mainHandler.postDelayed({ update() }, delayMs)
         }
     }
 
@@ -720,8 +722,8 @@ class MainService : NotificationListenerService() {
                         ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
                 } else null
                 publishPlayer(title, artist, album, null, cover)
-                handler.postDelayed({ refreshObservedCover(controller.sessionToken, title, artist, album) }, 350)
-                handler.postDelayed({ refreshObservedCover(controller.sessionToken, title, artist, album) }, 1000)
+                mainHandler.postDelayed({ refreshObservedCover(controller.sessionToken, title, artist, album) }, 350)
+                mainHandler.postDelayed({ refreshObservedCover(controller.sessionToken, title, artist, album) }, 1000)
 
                 refreshLyrics(title, artist, album, position)
                 if (isPlaying) lyricWindow?.showLyric() else lyricWindow?.hideLyric(clearCurrent = false)
@@ -866,7 +868,7 @@ class MainService : NotificationListenerService() {
         val trackChanged = currentMusic != nameIdentifier
 
         if (currentMusic != nameIdentifier || forceSearch) {
-            lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
+            lyricBoundaryRunnable?.let { mainHandler.removeCallbacks(it) }
             lyricBoundaryRunnable = null
             currentMusic = nameIdentifier
             if (!forceSearch) {
@@ -1126,7 +1128,7 @@ class MainService : NotificationListenerService() {
 
     private fun scheduleLyricBoundary(title: String, artist: String, album: String, nextTime: Int, position: Long) {
         if (!isPlaying) return
-        lyricBoundaryRunnable?.let { handler.removeCallbacks(it) }
+        lyricBoundaryRunnable?.let { mainHandler.removeCallbacks(it) }
         val delay = (nextTime.toLong() - position).coerceAtLeast(1L)
         val musicAtSchedule = currentMusic
         val task = Runnable {
@@ -1136,7 +1138,7 @@ class MainService : NotificationListenerService() {
             refreshLyrics(title, artist, album, nextTime.toLong())
         }
         lyricBoundaryRunnable = task
-        handler.postDelayed(task, delay)
+        mainHandler.postDelayed(task, delay)
     }
 
     private fun fetchLyrics(
@@ -1429,7 +1431,9 @@ class MainService : NotificationListenerService() {
             val legacyDp = prefs.getInt("overlay_top_dp", -1)
             if (legacyDp >= 0) dp(legacyDp) * 100f / height else defaultTop * 100f / height
         }
-        return (height * percent.coerceIn(0f, 10f) / 100f).roundToInt().coerceIn(0, height)
+        // 0% 对应屏幕最顶部；滑块以 0.1% 为单位，最大值为 10%。
+        val topPercent = percent.coerceIn(0f, 10f)
+        return (height * topPercent / 100f).roundToInt().coerceIn(0, height)
     }
 
     private fun styleInt(
@@ -1475,7 +1479,8 @@ class MainService : NotificationListenerService() {
     private fun overlayHorizontalBounds(prefs: android.content.SharedPreferences): Pair<Int, Int> {
         val screenWidth = resources.displayMetrics.widthPixels
         val screenWidthDp = (screenWidth / resources.displayMetrics.density).toInt()
-        val baseLeft = dp(styleInt(prefs, KEY_LEFT_ENABLED, KEY_LEFT, DEFAULT_LEFT, 0, 64))
+        val maxLeftDp = (screenWidthDp - 100).coerceAtLeast(0)
+        val baseLeft = dp(styleInt(prefs, KEY_LEFT_ENABLED, KEY_LEFT, DEFAULT_LEFT, 0, maxLeftDp))
         val baseWidth = dp(styleInt(prefs, KEY_WIDTH_ENABLED, KEY_WIDTH, DEFAULT_WIDTH, 100, screenWidthDp))
             .coerceAtMost(screenWidth - baseLeft)
         val count = otherNotificationCount()
@@ -1546,7 +1551,7 @@ class MainService : NotificationListenerService() {
         private fun lyricText() = TextView(context).apply {
             setTextColor(Color.WHITE)
             textSize = 13f
-            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            gravity = Gravity.TOP or Gravity.START
             setSingleLine(true)
             fontFeatureSettings = "kern,halt"
             applyShadow(this)

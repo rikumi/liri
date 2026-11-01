@@ -48,7 +48,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -96,32 +95,31 @@ import kotlinx.coroutines.delay
 import org.json.JSONArray
 import com.android.volley.toolbox.ImageRequest
 import com.android.volley.toolbox.Volley
-import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Community
-import top.yukonga.miuix.kmp.icon.extended.ChevronBackward
-import top.yukonga.miuix.kmp.icon.extended.ChevronForward
-import top.yukonga.miuix.kmp.icon.extended.Lock
-import top.yukonga.miuix.kmp.icon.extended.Tune
-import top.yukonga.miuix.kmp.icon.extended.Back
-import top.yukonga.miuix.kmp.icon.extended.Delete
-import top.yukonga.miuix.kmp.icon.extended.Add
-import top.yukonga.miuix.kmp.icon.extended.Backup
-import top.yukonga.miuix.kmp.icon.extended.Replace
-import top.yukonga.miuix.kmp.icon.extended.Folder
-import top.yukonga.miuix.kmp.icon.extended.Download
-import top.yukonga.miuix.kmp.icon.extended.ExpandLess
-import top.yukonga.miuix.kmp.icon.extended.ExpandMore
-import top.yukonga.miuix.kmp.icon.extended.Pause
-import top.yukonga.miuix.kmp.icon.extended.Play
+import io.github.suqi8.coui.kmp.icon.COUIIcons
+import io.github.suqi8.coui.kmp.icon.extended.Community
+import io.github.suqi8.coui.kmp.icon.extended.ChevronBackward
+import io.github.suqi8.coui.kmp.icon.extended.ChevronForward
+import io.github.suqi8.coui.kmp.icon.extended.Lock
+import io.github.suqi8.coui.kmp.icon.extended.Tune
+import io.github.suqi8.coui.kmp.icon.extended.Back
+import io.github.suqi8.coui.kmp.icon.extended.Delete
+import io.github.suqi8.coui.kmp.icon.extended.Add
+import io.github.suqi8.coui.kmp.icon.extended.Backup
+import io.github.suqi8.coui.kmp.icon.extended.Replace
+import io.github.suqi8.coui.kmp.icon.extended.Folder
+import io.github.suqi8.coui.kmp.icon.extended.Download
+import io.github.suqi8.coui.kmp.icon.extended.ExpandLess
+import io.github.suqi8.coui.kmp.icon.extended.ExpandMore
+import io.github.suqi8.coui.kmp.icon.extended.Pause
+import io.github.suqi8.coui.kmp.icon.extended.Play
 
-import top.yukonga.miuix.kmp.icon.extended.Edit
-import androidx.compose.ui.window.Popup
-import top.yukonga.miuix.kmp.basic.Scaffold
-import top.yukonga.miuix.kmp.theme.ColorSchemeMode
-import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.theme.ThemeController
-import top.yukonga.miuix.kmp.theme.darkColorScheme
-import top.yukonga.miuix.kmp.theme.lightColorScheme
+import io.github.suqi8.coui.kmp.icon.extended.Edit
+import io.github.suqi8.coui.kmp.basic.Scaffold
+import io.github.suqi8.coui.kmp.theme.ColorSchemeMode
+import io.github.suqi8.coui.kmp.theme.COUITheme
+import io.github.suqi8.coui.kmp.theme.ThemeController
+import io.github.suqi8.coui.kmp.theme.darkColorScheme
+import io.github.suqi8.coui.kmp.theme.lightColorScheme
 
 private val homeExpandEasing = CubicBezierEasing(0.42f, 0f, 1f, 1f)
 private val homeCollapseEasing = CubicBezierEasing(0f, 0f, 0.58f, 1f)
@@ -136,7 +134,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val context = LocalContext.current
             val darkTheme = isSystemInDarkTheme()
-            MiuixTheme(
+            COUITheme(
                 controller = remember(darkTheme) {
                     ThemeController(
                         colorSchemeMode = if (darkTheme) ColorSchemeMode.Dark else ColorSchemeMode.Light,
@@ -145,10 +143,19 @@ class MainActivity : ComponentActivity() {
                         darkColors = darkColorScheme(primary = Color(0xFFFFB86B)),
                     )
                 },
-                textStyles = couixTextStyles(),
             ) {
-                CouixStatusBar()
-                CouixOverscrollHost { LiriNavigation(this@MainActivity.resumeToken) }
+                SettingsStatusBar()
+                val navigationOwner = remember {
+                    object : androidx.navigationevent.NavigationEventDispatcherOwner {
+                        override val navigationEventDispatcher = androidx.navigationevent.NavigationEventDispatcher()
+                    }
+                }
+                DisposableEffect(navigationOwner) {
+                    onDispose { navigationOwner.navigationEventDispatcher.dispose() }
+                }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.navigationevent.compose.LocalNavigationEventDispatcherOwner provides navigationOwner,
+                ) { LiriNavigation(this@MainActivity.resumeToken) }
             }
         }
     }
@@ -217,20 +224,20 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onDisplay
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     val listState = rememberLazyListState()
-    val overscrollOffset = remember { mutableFloatStateOf(0f) }
+    val listScroll = rememberSettingsListScroll(listState)
     Scaffold(
-        containerColor = MiuixTheme.colorScheme.surface,
+        containerColor = COUITheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
-            CouixLargeTitle(
+            SettingsLargeTitle(
                 title = "Liri Lyrics",
-                dividerProgress = couixTopBarDividerProgress(listState, overscrollOffset),
+                scrollBehavior = listScroll.appBar,
                 actions = {
-                    top.yukonga.miuix.kmp.basic.IconButton(onClick = ::toggleHomeExpansion) {
-                        top.yukonga.miuix.kmp.basic.Icon(
-                            imageVector = if (settingsExpanded) MiuixIcons.ExpandMore else MiuixIcons.ExpandLess,
+                    io.github.suqi8.coui.kmp.basic.IconButton(onClick = ::toggleHomeExpansion) {
+                        io.github.suqi8.coui.kmp.basic.Icon(
+                            imageVector = if (settingsExpanded) COUIIcons.ExpandMore else COUIIcons.ExpandLess,
                             contentDescription = if (settingsExpanded) "收起设置" else "展开设置",
-                            tint = MiuixTheme.colorScheme.onSurface,
+                            tint = COUITheme.colorScheme.onSurface,
                             modifier = Modifier.size(22.dp),
                         )
                     }
@@ -238,9 +245,9 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onDisplay
             )
         },
     ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding).couixOverscroll(listState, overscrollOffset).padding(top = 8.dp),
+        SettingsLazyColumn(
+            scroll = listScroll,
+            modifier = Modifier.fillMaxSize().background(COUITheme.colorScheme.surface).padding(padding).padding(top = 8.dp),
         ) {
             item {
                 AnimatedVisibility(
@@ -248,33 +255,33 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onDisplay
                     enter = fadeIn(tween(220, easing = homeExpandEasing)) + expandVertically(animationSpec = tween(280, easing = homeExpandEasing)),
                     exit = fadeOut(tween(160, easing = homeCollapseEasing)) + slideOutVertically(animationSpec = tween(280, easing = homeCollapseEasing)) { -it } + shrinkVertically(animationSpec = tween(280, easing = homeCollapseEasing)),
                 ) {
-                    CouixCard {
-                        CouixCategoryRow(MiuixIcons.Lock, "授予系统权限", onPermissions)
-                        CouixItemDivider()
-                        CouixCategoryRow(MiuixIcons.Tune, "位置与样式", onStyle)
-                        CouixItemDivider()
-                        CouixCategoryRow(MiuixIcons.Download, "界面显示与保存", onDisplaySave)
-                        CouixItemDivider()
+                    SettingsCard {
+                        SettingsCategoryRow(COUIIcons.Lock, "授予系统权限", onPermissions)
+                        SettingsItemDivider()
+                        SettingsCategoryRow(COUIIcons.Tune, "位置与样式", onStyle)
+                        SettingsItemDivider()
+                        SettingsCategoryRow(COUIIcons.Download, "界面显示与保存", onDisplaySave)
+                        SettingsItemDivider()
                         LyricEditingFragment(player, context, onEditor)
                     }
                 }
             }
             item {
-                if (settingsExpanded) CouixSmallTitle("正在播放")
+                if (settingsExpanded) SettingsSmallTitle("正在播放")
                 NowPlayingCard(player, nowPlayingExpanded, onEditor, ::toggleHomeExpansion)
             }
             if (settingsExpanded) {
                 item {
-                    CouixSmallTitle("手动搜词")
+                    SettingsSmallTitle("手动搜词")
                     SearchResultCard(player, context)
                 }
             }
             item {
                 BasicText(
                     text = "𝄽",
-                    style = MiuixTheme.textStyles.body1.copy(
+                    style = COUITheme.textStyles.body1.copy(
                         fontSize = 48.sp,
-                        color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f),
+                        color = COUITheme.colorScheme.onSurface.copy(alpha = 0.08f),
                         textAlign = TextAlign.Center,
                     ),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -387,7 +394,7 @@ private fun NowPlayingCard(player: PlayerSnapshot, nowPlayingExpanded: Boolean, 
             delay(16)
         }
     }
-    CouixCard {
+    SettingsCard {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -421,7 +428,7 @@ private fun NowPlayingCard(player: PlayerSnapshot, nowPlayingExpanded: Boolean, 
                                 ),
                         )
                         Spacer(Modifier.height(12.dp))
-                        CouixPreferenceText(
+                        SettingsPreferenceText(
                             title = if (!player.serviceStarted && player.title.isBlank()) "等待服务启动…" else if (player.title.isBlank()) "未检测到正在播放" else displaySongTitle(player.title, player.stripTitleParentheses),
                             subtitle = if (!player.serviceStarted) "等待服务启动…" else formatArtistAlbum(player.artist, player.album),
                             textAlign = TextAlign.Center,
@@ -440,7 +447,7 @@ private fun NowPlayingCard(player: PlayerSnapshot, nowPlayingExpanded: Boolean, 
                             ),
                         )
                         Spacer(Modifier.width(14.dp))
-                        CouixPreferenceText(
+                        SettingsPreferenceText(
                             title = if (!player.serviceStarted && player.title.isBlank()) "等待服务启动…" else if (player.title.isBlank()) "未检测到正在播放" else displaySongTitle(player.title, player.stripTitleParentheses),
                             subtitle = if (!player.serviceStarted) "等待服务启动…" else formatArtistAlbum(player.artist, player.album),
                             modifier = Modifier.weight(1f),
@@ -457,11 +464,11 @@ private fun NowPlayingCard(player: PlayerSnapshot, nowPlayingExpanded: Boolean, 
                         modifier = Modifier
                             .width(48.dp)
                             .height(1.dp)
-                            .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.16f)),
+                            .background(COUITheme.colorScheme.onSurface.copy(alpha = 0.16f)),
                     )
                 }
             }
-            CouixPreferenceText(
+            SettingsPreferenceText(
                 title = player.currentLyric,
                 subtitle = player.nextLyric,
                 subtitleColor = (if (isSystemInDarkTheme()) Color.White else Color.Black).copy(alpha = 0.55f),
@@ -500,14 +507,14 @@ private fun NowPlayingCard(player: PlayerSnapshot, nowPlayingExpanded: Boolean, 
                         )
                     }
                 }
-                top.yukonga.miuix.kmp.basic.IconButton(
+                io.github.suqi8.coui.kmp.basic.IconButton(
                     onClick = onEditor,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = 16.dp),
                 ) {
-                    top.yukonga.miuix.kmp.basic.Icon(
-                        MiuixIcons.Edit,
+                    io.github.suqi8.coui.kmp.basic.Icon(
+                        COUIIcons.Edit,
                         contentDescription = "编辑歌词",
                         tint = if (isSystemInDarkTheme()) Color.White else Color(0xFF212121),
                         modifier = Modifier.size(22.dp),
@@ -554,13 +561,13 @@ private fun PlayingArtwork(
     else Box(
         modifier = artworkWithShadow
             .clip(artworkShape)
-            .background(MiuixTheme.colorScheme.surfaceContainer),
+            .background(COUITheme.colorScheme.surfaceContainer),
         contentAlignment = Alignment.Center,
     ) {
-        top.yukonga.miuix.kmp.basic.Icon(
-            MiuixIcons.Community,
+        io.github.suqi8.coui.kmp.basic.Icon(
+            COUIIcons.Community,
             contentDescription = "当前歌曲",
-            tint = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            tint = COUITheme.colorScheme.onSurfaceVariantSummary,
             modifier = Modifier.size(if (size != null) size / 2 else 56.dp),
         )
     }
@@ -575,28 +582,28 @@ private fun MainPlaybackControl(player: PlayerSnapshot) {
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        top.yukonga.miuix.kmp.basic.IconButton(
+        io.github.suqi8.coui.kmp.basic.IconButton(
             onClick = { context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SKIP_PREVIOUS)) },
             modifier = Modifier.size(48.dp),
         ) {
-            top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.ChevronBackward, "上一曲", tint = iconColor, modifier = Modifier.size(22.dp))
+            io.github.suqi8.coui.kmp.basic.Icon(COUIIcons.ChevronBackward, "上一曲", tint = iconColor, modifier = Modifier.size(22.dp))
         }
-        top.yukonga.miuix.kmp.basic.IconButton(
+        io.github.suqi8.coui.kmp.basic.IconButton(
             onClick = { context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_TOGGLE_PLAYBACK)) },
             modifier = Modifier.size(48.dp),
         ) {
-            top.yukonga.miuix.kmp.basic.Icon(
-                if (player.playing) MiuixIcons.Pause else MiuixIcons.Play,
+            io.github.suqi8.coui.kmp.basic.Icon(
+                if (player.playing) COUIIcons.Pause else COUIIcons.Play,
                 if (player.playing) "暂停" else "播放",
                 tint = iconColor,
                 modifier = Modifier.size(22.dp),
             )
         }
-        top.yukonga.miuix.kmp.basic.IconButton(
+        io.github.suqi8.coui.kmp.basic.IconButton(
             onClick = { context.startService(Intent(context, MainService::class.java).setAction(ACTION_EDITOR_SKIP_NEXT)) },
             modifier = Modifier.size(48.dp),
         ) {
-            top.yukonga.miuix.kmp.basic.Icon(MiuixIcons.ChevronForward, "下一曲", tint = iconColor, modifier = Modifier.size(22.dp))
+            io.github.suqi8.coui.kmp.basic.Icon(COUIIcons.ChevronForward, "下一曲", tint = iconColor, modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -613,7 +620,7 @@ private fun SongOffsetControl(player: PlayerSnapshot) {
     ) {
             BasicText(
                 text = "提前 -",
-                style = MiuixTheme.textStyles.body2.copy(fontFamily = mapleMono, color = MiuixTheme.colorScheme.primary),
+                style = COUITheme.textStyles.body2.copy(fontFamily = mapleMono, color = COUITheme.colorScheme.primary),
                 modifier = Modifier.clickable {
                 val value = (offsetMs - 100).coerceAtLeast(-30000)
                 offsetMs = value
@@ -623,12 +630,12 @@ private fun SongOffsetControl(player: PlayerSnapshot) {
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             BasicText(
                 text = "%+.1fs".format(offsetMs / 1000f),
-                style = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurface),
+                style = COUITheme.textStyles.body1.copy(color = COUITheme.colorScheme.onSurface),
             )
         }
             BasicText(
                 text = "+ 延后",
-                style = MiuixTheme.textStyles.body2.copy(fontFamily = mapleMono, color = MiuixTheme.colorScheme.primary),
+                style = COUITheme.textStyles.body2.copy(fontFamily = mapleMono, color = COUITheme.colorScheme.primary),
                 modifier = Modifier.clickable {
                 val value = (offsetMs + 100).coerceAtMost(30000)
                 offsetMs = value
@@ -641,18 +648,18 @@ private fun SongOffsetControl(player: PlayerSnapshot) {
 @Composable
 private fun LyricEditingFragment(player: PlayerSnapshot, context: Context, onEditor: () -> Unit) {
     var showClearDialog by remember { mutableStateOf(false) }
-    CouixActionPairRow(
+    SettingsActionPairRow(
         leftTitle = "编辑本地歌词",
         onLeftClick = onEditor,
         rightTitle = "清空本地歌词",
         onRightClick = { showClearDialog = true },
-        leftIcon = MiuixIcons.Edit,
-        rightIcon = MiuixIcons.Delete,
+        leftIcon = COUIIcons.Edit,
+        rightIcon = COUIIcons.Delete,
         leftShowChevron = false,
         rightShowChevron = false,
     )
     if (showClearDialog) {
-        CouixConfirmDialog(
+        SettingsConfirmDialog(
             text = "确认清空歌词？",
             confirmLabel = "确认",
             dismissLabel = "取消",
@@ -678,20 +685,21 @@ private fun DisplaySaveScreen(onBack: () -> Unit) {
     var saveAlbumArt by remember { mutableStateOf(prefs.getBoolean("save_album_art_automatically", true)) }
     var stripTitleParentheses by remember { mutableStateOf(prefs.getBoolean("strip_title_parentheses", false)) }
     val listState = rememberLazyListState()
+    val listScroll = rememberSettingsListScroll(listState)
     Scaffold(
-        containerColor = MiuixTheme.colorScheme.surface,
+        containerColor = COUITheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0.dp),
         topBar = {
-            CouixTopAppBar("界面显示与保存", dividerProgress = couixTopBarDividerProgress(listState), navigationIcon = { CouixBackButton(onBack) })
+            SettingsTopAppBar("界面显示与保存", scrollBehavior = listScroll.appBar, navigationIcon = { SettingsBackButton(onBack) })
         },
     ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding).couixOverscroll(listState),
+        SettingsLazyColumn(
+            scroll = listScroll,
+            modifier = Modifier.fillMaxSize().background(COUITheme.colorScheme.surface).padding(padding),
         ) {
             item {
-                CouixCard {
-                    CouixSwitchPreference(
+                SettingsCard {
+                    SettingsSwitchPreference(
                         checked = stripTitleParentheses,
                         onCheckedChange = {
                             stripTitleParentheses = it
@@ -699,8 +707,8 @@ private fun DisplaySaveScreen(onBack: () -> Unit) {
                         },
                         title = "界面显示时去除标题括号",
                     )
-                    CouixItemDivider()
-                    CouixSwitchPreference(
+                    SettingsItemDivider()
+                    SettingsSwitchPreference(
                         checked = saveLyrics,
                         onCheckedChange = {
                             saveLyrics = it
@@ -708,8 +716,8 @@ private fun DisplaySaveScreen(onBack: () -> Unit) {
                         },
                         title = "保存自动搜索的歌词文件",
                     )
-                    CouixItemDivider()
-                    CouixSwitchPreference(
+                    SettingsItemDivider()
+                    SettingsSwitchPreference(
                         checked = saveAlbumArt,
                         onCheckedChange = {
                             saveAlbumArt = it
@@ -732,7 +740,7 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
     LaunchedEffect(player.title, player.artist) {
         searchQuery = defaultLyricSearchQuery(player.title, player.artist)
     }
-    CouixCard {
+    SettingsCard {
         fun requestSearch(source: String) {
             context.settingsPrefs().edit()
                 .putString("lyric_search_query", searchQuery.trim())
@@ -744,23 +752,20 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
             context.startService(Intent(context, MainService::class.java).setAction(ACTION_SEARCH_LYRICS))
         }
         Row(
-            modifier = Modifier.fillMaxWidth().requiredHeight(56.dp).padding(start = 8.dp, end = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BasicTextField(
+            io.github.suqi8.coui.kmp.basic.TextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
                 singleLine = true,
-                textStyle = MiuixTheme.textStyles.body1.copy(color = MiuixTheme.colorScheme.onSurface),
-                cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
                 modifier = Modifier
                     .weight(1f)
-                    .padding(end = 8.dp)
-                    .padding(horizontal = 8.dp, vertical = 6.5.dp),
+                    .padding(end = 8.dp),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 listOf("netease" to "网易", "qq" to "QQ").forEach { (source, label) ->
-                    val underlineColor = MiuixTheme.colorScheme.primary
+                    val underlineColor = COUITheme.colorScheme.primary
                     Column(
                         modifier = Modifier
                             .width(32.dp)
@@ -771,8 +776,8 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
                     ) {
                         BasicText(
                             text = label,
-                            style = MiuixTheme.textStyles.body2.copy(
-                                color = MiuixTheme.colorScheme.primary.copy(alpha = if (player.searchingLyrics) 0.38f else 1f),
+                            style = COUITheme.textStyles.body2.copy(
+                                color = COUITheme.colorScheme.primary.copy(alpha = if (player.searchingLyrics) 0.38f else 1f),
                             ),
                             modifier = Modifier
                                 .padding(bottom = 3.dp)
@@ -800,9 +805,9 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
             ) {
                 BasicText(
                     text = "已加载本地歌词，可手动重新发起搜索",
-                    style = MiuixTheme.textStyles.body2.copy(
+                    style = COUITheme.textStyles.body2.copy(
                         fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        color = COUITheme.colorScheme.onSurfaceVariantSummary,
                         textAlign = TextAlign.Center,
                     ),
                     modifier = Modifier.fillMaxWidth(),
@@ -810,20 +815,20 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
             }
         }
         if (player.searchingLyrics || player.manualSearch || player.results.isNotEmpty()) {
-            CouixItemDivider()
+            SettingsItemDivider()
         }
         if (player.searchingLyrics) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 0.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                CouixPreferenceText(title = "正在搜索歌词…", subtitle = "")
+                SettingsPreferenceText(title = "正在搜索歌词…", subtitle = "")
             }
         } else if (player.results.isNotEmpty()) {
             player.results.forEachIndexed { index, result ->
                 val expanded = expandedResultKey == result.key
                 val previousExpanded = index > 0 && expandedResultKey == player.results[index - 1].key
-                if (index > 0 && !expanded && !previousExpanded) CouixItemDivider()
+                if (index > 0 && !expanded && !previousExpanded) SettingsItemDivider()
                 Column(modifier = Modifier.fillMaxWidth()) {
                     if (expanded) {
                         SearchResultPreview(player, result, context) {
@@ -849,10 +854,10 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
                             }.padding(horizontal = 16.dp, vertical = 0.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            CouixPreferenceText(
+                            SettingsPreferenceText(
                                 title = result.title,
                                 subtitle = "${result.artist} - ${result.album}",
-                                titleColor = if (result.id == player.selectedId) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurface,
+                                titleColor = if (result.id == player.selectedId) COUITheme.colorScheme.primary else COUITheme.colorScheme.onSurface,
                             )
                         }
                     }
@@ -907,7 +912,7 @@ private fun SearchResultPreview(player: PlayerSnapshot, result: SearchResult, co
             .clip(RoundedCornerShape(12.dp))
             .background(
                 if (isSystemInDarkTheme()) {
-                    MiuixTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                    COUITheme.colorScheme.onSurface.copy(alpha = 0.08f)
                 } else {
                     Color.Black.copy(alpha = 0.06f)
                 },
@@ -922,12 +927,12 @@ private fun SearchResultPreview(player: PlayerSnapshot, result: SearchResult, co
                 PlayingArtwork(previewCover, 52.dp)
             }
             Spacer(Modifier.width(14.dp))
-            CouixPreferenceText(title = result.title, subtitle = "${result.artist} - ${result.album}", modifier = Modifier.weight(1f))
+            SettingsPreferenceText(title = result.title, subtitle = "${result.artist} - ${result.album}", modifier = Modifier.weight(1f))
         }
-        CouixPreferenceText(
+        SettingsPreferenceText(
             title = current,
             subtitle = next,
-            subtitleColor = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            subtitleColor = COUITheme.colorScheme.onSurfaceVariantSummary,
             animateText = true,
             progress = previewProgress,
             animateProgress = false,
@@ -939,7 +944,7 @@ private fun SearchResultPreview(player: PlayerSnapshot, result: SearchResult, co
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 BasicText(
                     text = "使用歌词",
-                    style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.primary),
+                    style = COUITheme.textStyles.body2.copy(color = COUITheme.colorScheme.primary),
                     modifier = Modifier.clickable {
                         context.settingsPrefs().edit()
                             .putLong("selected_lyric_id", result.id)
@@ -953,12 +958,12 @@ private fun SearchResultPreview(player: PlayerSnapshot, result: SearchResult, co
                 modifier = Modifier
                     .width(1.dp)
                     .height(16.dp)
-                    .background(MiuixTheme.colorScheme.onSurface.copy(alpha = 0.18f)),
+                    .background(COUITheme.colorScheme.onSurface.copy(alpha = 0.18f)),
             )
             Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 BasicText(
                     text = "使用专辑封面",
-                    style = MiuixTheme.textStyles.body2.copy(color = MiuixTheme.colorScheme.primary),
+                    style = COUITheme.textStyles.body2.copy(color = COUITheme.colorScheme.primary),
                     modifier = Modifier.clickable {
                         context.settingsPrefs().edit()
                             .putString("preview_album_art_url", player.previewCoverUrl.ifBlank { result.cover })
@@ -1004,13 +1009,14 @@ private fun PermissionScreen(refreshToken: Int, onBack: () -> Unit) {
         }
     }
     val listState = rememberLazyListState()
-    Scaffold(containerColor = MiuixTheme.colorScheme.surface, contentWindowInsets = WindowInsets(0.dp), topBar = { CouixTopAppBar("授予系统权限", dividerProgress = couixTopBarDividerProgress(listState), navigationIcon = { CouixBackButton(onBack) }) }) { padding ->
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding).couixOverscroll(listState)) {
+    val listScroll = rememberSettingsListScroll(listState)
+    Scaffold(containerColor = COUITheme.colorScheme.surface, contentWindowInsets = WindowInsets(0.dp), topBar = { SettingsTopAppBar("授予系统权限", scrollBehavior = listScroll.appBar, navigationIcon = { SettingsBackButton(onBack) }) }) { padding ->
+        SettingsLazyColumn(scroll = listScroll, modifier = Modifier.fillMaxSize().background(COUITheme.colorScheme.surface).padding(padding)) {
             item {
-                CouixCard {
+                SettingsCard {
                     entries.forEachIndexed { index, entry ->
-                        if (index > 0) CouixItemDivider()
-                    CouixSwitchPreference(checked = entry.enabled, onCheckedChange = { entry.open() }, title = entry.title, subtitle = entry.subtitle)
+                        if (index > 0) SettingsItemDivider()
+                    SettingsSwitchPreference(checked = entry.enabled, onCheckedChange = { entry.open() }, title = entry.title, subtitle = entry.subtitle)
                     }
                 }
             }
@@ -1037,6 +1043,7 @@ private fun StyleScreen(onBack: () -> Unit) {
     val prefs = remember { context.settingsPrefs() }
     val screenWidthDp = (context.resources.displayMetrics.widthPixels / context.resources.displayMetrics.density).toInt()
     val widthMax = screenWidthDp.coerceAtLeast(100)
+    val leftMax = (screenWidthDp - 100).coerceAtLeast(0)
     val widthDefault = DEFAULT_WIDTH.coerceIn(100, widthMax)
     val topDefault = defaultTop(context)
     val topValue = if (prefs.contains(KEY_TOP)) {
@@ -1070,13 +1077,14 @@ private fun StyleScreen(onBack: () -> Unit) {
         editor.apply()
     }
     val listState = rememberLazyListState()
-    Scaffold(containerColor = MiuixTheme.colorScheme.surface, contentWindowInsets = WindowInsets(0.dp), topBar = { CouixTopAppBar("位置与样式", dividerProgress = couixTopBarDividerProgress(listState), navigationIcon = { CouixBackButton(onBack) }) }) { padding ->
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface).padding(padding).couixOverscroll(listState)) {
+    val listScroll = rememberSettingsListScroll(listState)
+    Scaffold(containerColor = COUITheme.colorScheme.surface, contentWindowInsets = WindowInsets(0.dp), topBar = { SettingsTopAppBar("位置与样式", scrollBehavior = listScroll.appBar, navigationIcon = { SettingsBackButton(onBack) }) }) { padding ->
+        SettingsLazyColumn(scroll = listScroll, modifier = Modifier.fillMaxSize().background(COUITheme.colorScheme.surface).padding(padding)) {
         item {
-            CouixSmallTitle("悬浮歌词位置")
-            CouixGroup(
+            SettingsSmallTitle("悬浮歌词位置")
+            SettingsGroup(
                 items = listOf(
-                    SwitchItem(KEY_LEFT_ENABLED, "调整左边界", sliderKey = KEY_LEFT, sliderMin = 0, sliderMax = 64, sliderDefault = DEFAULT_LEFT),
+                    SwitchItem(KEY_LEFT_ENABLED, "调整左边界", sliderKey = KEY_LEFT, sliderMin = 0, sliderMax = leftMax, sliderDefault = DEFAULT_LEFT.coerceAtMost(leftMax)),
                     SwitchItem(KEY_TOP_ENABLED, "调整 Y 坐标（上边距）", sliderKey = KEY_TOP, sliderMin = 0, sliderMax = 100, sliderDefault = topDefault, sliderUnit = "%", sliderValueText = { "%.1f%%".format(Locale.ROOT, it / 10f) }),
                     SwitchItem(KEY_WIDTH_ENABLED, "调整宽度", sliderKey = KEY_WIDTH, sliderMin = 100, sliderMax = widthMax, sliderDefault = widthDefault),
                     SwitchItem(KEY_FONT_ENABLED, "调整字号", sliderKey = KEY_FONT, sliderMin = 10, sliderMax = 18, sliderDefault = DEFAULT_FONT, sliderUnit = "sp"),
@@ -1086,8 +1094,8 @@ private fun StyleScreen(onBack: () -> Unit) {
             )
         }
         item {
-            CouixSmallTitle("避开通知图标")
-            CouixGroup(
+            SettingsSmallTitle("避开通知图标")
+            SettingsGroup(
                 items = listOf(
                     SwitchItem(
                         key = KEY_SHIFT_ON_NOTIFICATION,
@@ -1113,8 +1121,8 @@ private fun StyleScreen(onBack: () -> Unit) {
             )
         }
         item {
-            CouixSmallTitle("歌词动画")
-            CouixGroup(
+            SettingsSmallTitle("歌词动画")
+            SettingsGroup(
                 items = listOf(
                     SwitchItem(KEY_ANGLE_ENABLED, "调整切入角度", sliderKey = KEY_ANGLE, sliderMin = 0, sliderMax = 360, sliderDefault = DEFAULT_ANGLE, sliderUnit = "°", sliderStep = 15),
                     SwitchItem(KEY_DISTANCE_ENABLED, "调整切入距离", sliderKey = KEY_DISTANCE, sliderMin = 8, sliderMax = 64, sliderDefault = DEFAULT_DISTANCE),
@@ -1125,8 +1133,8 @@ private fun StyleScreen(onBack: () -> Unit) {
             )
         }
         item {
-            CouixSmallTitle("歌词阴影")
-            CouixGroup(
+            SettingsSmallTitle("歌词阴影")
+            SettingsGroup(
                 items = listOf(
                     SwitchItem(KEY_SHADOW_DIRECTION_ENABLED, "调整阴影方向", sliderKey = KEY_SHADOW_DIRECTION, sliderMin = 0, sliderMax = 360, sliderDefault = DEFAULT_SHADOW_DIRECTION, sliderUnit = "°", sliderStep = 15),
                     SwitchItem(KEY_SHADOW_RADIUS_ENABLED, "调整阴影半径", sliderKey = KEY_SHADOW_RADIUS, sliderMin = 0, sliderMax = 12, sliderDefault = DEFAULT_SHADOW_RADIUS),
@@ -1140,13 +1148,13 @@ private fun StyleScreen(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun CouixBackButton(onBack: () -> Unit) {
-    top.yukonga.miuix.kmp.basic.IconButton(onClick = onBack) {
-        top.yukonga.miuix.kmp.basic.Icon(
-            imageVector = MiuixIcons.Back,
+internal fun SettingsBackButton(onBack: () -> Unit) {
+    io.github.suqi8.coui.kmp.basic.IconButton(onClick = onBack) {
+        io.github.suqi8.coui.kmp.basic.Icon(
+            imageVector = COUIIcons.Back,
             contentDescription = "返回",
-            tint = MiuixTheme.colorScheme.onSurface,
-            modifier = Modifier.size(COUIX_BACK_ICON),
+            tint = COUITheme.colorScheme.onSurface,
+            modifier = Modifier.size(SETTINGS_BACK_ICON),
         )
     }
 }
