@@ -597,6 +597,12 @@ class MainService : NotificationListenerService() {
         mainHandler.postDelayed({ update() }, 80L)
     }
 
+    override fun onNotificationRankingUpdate(rankingMap: RankingMap) {
+        super.onNotificationRankingUpdate(rankingMap)
+        // 用户修改通道重要性时可能没有新的通知发布或移除，仍需更新右移次数。
+        mainHandler.post { applyOverlaySettings() }
+    }
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         mainHandler.post { update() }
@@ -1462,19 +1468,22 @@ class MainService : NotificationListenerService() {
             || (observedPackageName.isNotBlank() && sbn.packageName == observedPackageName)
     }
 
-    private fun isSilentNotification(sbn: StatusBarNotification): Boolean {
-        val notification = sbn.notification
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val extras = notification.extras
-            if (extras.getBoolean("android.isSilent", false) || extras.getBoolean("android.silent", false)) return true
-            getSystemService(NotificationManager::class.java)
-                ?.getNotificationChannel(notification.channelId)
-                ?.let { return it.importance < NotificationManager.IMPORTANCE_DEFAULT }
+    private fun isSilentNotification(sbn: StatusBarNotification, rankings: RankingMap): Boolean {
+        val extras = sbn.notification.extras
+        if (extras.getBoolean("android.isSilent", false) || extras.getBoolean("android.silent", false)) return true
+        val ranking = Ranking()
+        if (rankings.getRanking(sbn.key, ranking)) {
+            // Ranking 提供该通知所属应用的实际重要性；本应用的 NotificationManager
+            // 只能查询本应用的通道，不能用于判断其他应用的通知。
+            return ranking.isAmbient || ranking.importance < NotificationManager.IMPORTANCE_DEFAULT
         }
-        return notification.priority < Notification.PRIORITY_DEFAULT
+        return sbn.notification.priority < Notification.PRIORITY_DEFAULT
     }
 
-    private fun otherNotificationCount(): Int = activeNotifications.count { !isMediaNotification(it) && !isSilentNotification(it) }
+    private fun otherNotificationCount(): Int {
+        val rankings = currentRanking
+        return activeNotifications.count { !isMediaNotification(it) && !isSilentNotification(it, rankings) }
+    }
 
     private fun overlayHorizontalBounds(prefs: android.content.SharedPreferences): Pair<Int, Int> {
         val screenWidth = resources.displayMetrics.widthPixels
