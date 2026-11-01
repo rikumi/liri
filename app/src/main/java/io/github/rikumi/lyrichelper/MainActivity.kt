@@ -99,6 +99,7 @@ import io.github.suqi8.coui.kmp.icon.COUIIcons
 import io.github.suqi8.coui.kmp.icon.extended.Community
 import io.github.suqi8.coui.kmp.icon.extended.ChevronBackward
 import io.github.suqi8.coui.kmp.icon.extended.ChevronForward
+import io.github.suqi8.coui.kmp.icon.extended.Info
 import io.github.suqi8.coui.kmp.icon.extended.Lock
 import io.github.suqi8.coui.kmp.icon.extended.Tune
 import io.github.suqi8.coui.kmp.icon.extended.Back
@@ -124,7 +125,7 @@ import io.github.suqi8.coui.kmp.theme.lightColorScheme
 private val homeExpandEasing = CubicBezierEasing(0.42f, 0f, 1f, 1f)
 private val homeCollapseEasing = CubicBezierEasing(0f, 0f, 0.58f, 1f)
 
-private enum class Page { HOME, PERMISSIONS, STYLE, DISPLAY_SAVE, EDITOR }
+private enum class Page { HOME, PERMISSIONS, STYLE, DISPLAY_SAVE, EDITOR, ABOUT, LICENSES }
 
 class MainActivity : ComponentActivity() {
     private var resumeToken by mutableIntStateOf(0)
@@ -169,12 +170,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun LiriNavigation(refreshToken: Int) {
     var page by remember { mutableStateOf(Page.HOME) }
+    var settingsExpanded by remember { mutableStateOf(true) }
     var transitionDirection by remember { mutableIntStateOf(1) }
     fun navigate(target: Page) {
-        transitionDirection = if (target == Page.HOME) -1 else 1
+        transitionDirection = if (target == Page.HOME || page == Page.LICENSES && target == Page.ABOUT) -1 else 1
         page = target
     }
-    BackHandler(enabled = page != Page.HOME) { navigate(Page.HOME) }
+    BackHandler(enabled = page != Page.HOME) { navigate(if (page == Page.LICENSES) Page.ABOUT else Page.HOME) }
     AnimatedContent(
         targetState = page,
         transitionSpec = {
@@ -184,24 +186,25 @@ private fun LiriNavigation(refreshToken: Int) {
         label = "page_transition",
     ) { currentPage ->
         when (currentPage) {
-            Page.HOME -> HomeScreen(onPermissions = { navigate(Page.PERMISSIONS) }, onStyle = { navigate(Page.STYLE) }, onDisplaySave = { navigate(Page.DISPLAY_SAVE) }, onEditor = { navigate(Page.EDITOR) })
+            Page.HOME -> HomeScreen(settingsExpanded = settingsExpanded, onSettingsExpandedChange = { settingsExpanded = it }, onAbout = { navigate(Page.ABOUT) }, onPermissions = { navigate(Page.PERMISSIONS) }, onStyle = { navigate(Page.STYLE) }, onDisplaySave = { navigate(Page.DISPLAY_SAVE) }, onEditor = { navigate(Page.EDITOR) })
             Page.PERMISSIONS -> PermissionScreen(refreshToken) { navigate(Page.HOME) }
             Page.STYLE -> StyleScreen { navigate(Page.HOME) }
             Page.DISPLAY_SAVE -> DisplaySaveScreen { navigate(Page.HOME) }
             Page.EDITOR -> LocalLrcEditorScreen { navigate(Page.HOME) }
+            Page.ABOUT -> AboutScreen(onBack = { navigate(Page.HOME) }, onOpenLicenses = { navigate(Page.LICENSES) })
+            Page.LICENSES -> OpenSourceScreen(onBack = { navigate(Page.ABOUT) })
         }
     }
 }
 
 @Composable
-private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onDisplaySave: () -> Unit, onEditor: () -> Unit) {
+private fun HomeScreen(settingsExpanded: Boolean, onSettingsExpandedChange: (Boolean) -> Unit, onAbout: () -> Unit, onPermissions: () -> Unit, onStyle: () -> Unit, onDisplaySave: () -> Unit, onEditor: () -> Unit) {
     val context = LocalContext.current
     var player by remember { mutableStateOf(readPlayerSnapshot(context)) }
-    var settingsExpanded by remember { mutableStateOf(true) }
     val nowPlayingExpanded = !settingsExpanded
     fun toggleHomeExpansion() {
         val showLargeArtwork = settingsExpanded
-        settingsExpanded = !settingsExpanded
+        onSettingsExpandedChange(!settingsExpanded)
         if (showLargeArtwork) {
             context.startService(Intent(context, MainService::class.java).setAction(ACTION_ENSURE_CURRENT_ALBUM_ART))
         }
@@ -217,7 +220,7 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onDisplay
             player = readPlayerSnapshot(context)
             if (preferences.getBoolean("show_large_now_playing", false)) {
                 preferences.edit().remove("show_large_now_playing").apply()
-                settingsExpanded = false
+                onSettingsExpandedChange(false)
             }
         }
         preferences.registerOnSharedPreferenceChangeListener(listener)
@@ -233,6 +236,16 @@ private fun HomeScreen(onPermissions: () -> Unit, onStyle: () -> Unit, onDisplay
                 title = "Liri Lyrics",
                 scrollBehavior = listScroll.appBar,
                 actions = {
+                    if (!nowPlayingExpanded) {
+                        io.github.suqi8.coui.kmp.basic.IconButton(onClick = onAbout) {
+                            io.github.suqi8.coui.kmp.basic.Icon(
+                                imageVector = COUIIcons.Info,
+                                contentDescription = "关于",
+                                tint = COUITheme.colorScheme.onSurface,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
                     io.github.suqi8.coui.kmp.basic.IconButton(onClick = ::toggleHomeExpansion) {
                         io.github.suqi8.coui.kmp.basic.Icon(
                             imageVector = if (settingsExpanded) COUIIcons.ExpandMore else COUIIcons.ExpandLess,
@@ -758,6 +771,8 @@ private fun SearchResultCard(player: PlayerSnapshot, context: Context) {
             io.github.suqi8.coui.kmp.basic.TextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
+                backgroundMode = io.github.suqi8.coui.kmp.basic.TextFieldMode.None,
+                insideMargin = androidx.compose.ui.unit.DpSize(8.dp, 12.dp),
                 singleLine = true,
                 modifier = Modifier
                     .weight(1f)

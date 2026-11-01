@@ -360,7 +360,7 @@ internal fun SettingsActionPairRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(64.dp),
+            .height(48.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SettingsActionCell(
@@ -485,8 +485,6 @@ private fun SettingsSwitchRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
-                        start = SETTINGS_ROW_HPADDING,
-                        end = SETTINGS_ROW_HPADDING,
                         bottom = SETTINGS_ROW_VPADDING,
                     ),
                 verticalAlignment = Alignment.CenterVertically,
@@ -506,7 +504,7 @@ private fun SettingsSwitchRow(
                     },
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .padding(vertical = 4.dp),
                 )
             }
         }
@@ -527,7 +525,8 @@ private fun SettingsActionCell(title: String, icon: ImageVector?, showChevron: B
     if (showChevron) {
         ArrowPreference(title = title, onClick = onClick, modifier = modifier, startAction = start)
     } else {
-        BasicComponent(title = title, onClick = onClick, modifier = modifier, startAction = start)
+        BasicComponent(title = title, onClick = onClick, modifier = modifier, startAction = start,
+            insideMargin = PaddingValues(horizontal = 16.dp, vertical = 8.dp))
     }
 }
 
